@@ -514,10 +514,8 @@ class AllocationReport(BaseModel):
     by_category: dict[str, float] = Field(default_factory=dict)
     by_category_pct: dict[str, float] = Field(default_factory=dict)
     by_stock_pct: dict[str, float] = Field(default_factory=dict)
-    by_sector_pct: dict[str, float] = Field(default_factory=dict)
     target_deviation: dict[str, float] = Field(default_factory=dict)
     stock_constraint_violations: list[str] = Field(default_factory=list)
-    sector_constraint_violations: list[str] = Field(default_factory=list)
 
 
 class ProposedAction(BaseModel):
