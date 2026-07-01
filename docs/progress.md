@@ -1,7 +1,7 @@
 # EGX Portfolio Manager — Development Progress
 
 ## Current Status
-**Active Milestone: M3 — News + News Processing Engine**
+**Active Milestone: M4 — Scoring + Risk + Confidence**
 **Last Updated: 2026-07-01**
 
 ---
@@ -13,7 +13,7 @@
 | M0 — Foundation | ✅ Done | 2026-07-01 |
 | M1 — Price + Technical Engine | ✅ Done | 2026-07-01 |
 | M2 — Fundamentals + Financial Engine | ✅ Done | 2026-07-01 |
-| M3 — News + News Processing Engine | ⏳ Not Started | — |
+| M3 — News + News Processing Engine | ✅ Done | 2026-07-01 |
 | M4 — Scoring + Risk + Confidence | ⏳ Not Started | — |
 | M5 — First Complete Job + Minimal Dashboard | ⏳ Not Started | — |
 | M6 — Swing Job + Full Dashboard | ⏳ Not Started | — |
@@ -73,15 +73,31 @@
 
 ## M3 — News + News Processing Engine Checklist
 
-- [ ] Mubasher discovery (2-day time-box: XHR vs Playwright) — highest-risk task this milestone
-- [ ] collectors/news_collector.py (Mubasher)
-- [ ] EGX Disclosure Collector (semi-manual v1)
-- [ ] News Processing Engine (lexicon-based, English + Arabic transliteration)
-- [ ] run_collection.py --type news
-- [ ] News items for all Phase 1 companies (>= 2 weeks)
-- [ ] Sentiment correct for 10 manually-labeled test headlines
-- [ ] publisher_name distinct from data_source_id
-- [ ] Lexicon version recorded per item
+- [x] Mubasher discovery (2-day time-box: XHR vs Playwright) — **resolved on day 1, no XHR/Playwright needed at all (see notes)**
+- [x] collectors/news_collector.py (Mubasher)
+- [x] EGX Disclosure Collector (semi-manual v1)
+- [x] News Processing Engine (lexicon-based, English + Arabic)
+- [x] run_collection.py --type news
+- [x] News items for all Phase 1 companies (>= 2 weeks) — **7/12 companies, real dates spanning weeks to ~4 months each (same coverage gap as M1/M2)**
+- [x] Sentiment correct for 10 manually-labeled test headlines (5 English + 5 Arabic, 21 tests total)
+- [x] publisher_name distinct from data_source_id (verified against real data: "مباشر"/"خاص مباشر" vs. "mubasher")
+- [x] Lexicon version recorded per item (verified: 42/42 real collected items have lexicon_version set)
+
+---
+
+## M4 — Scoring + Risk + Confidence Engines Checklist
+
+- [ ] Scoring Engine (3-component, full breakdown JSON)
+- [ ] Sector/Market Aggregation (Stage 6a synchronization barrier)
+- [ ] Risk Engine (Stage 6b, all 4 components)
+- [ ] Confidence Engine (5 inputs, SourceHealthService with 1-hr TTL)
+- [ ] AllocationCalculator unit tests (note: already written in M0 — verify coverage is complete, don't duplicate)
+- [ ] Checkpoint A transaction (atomic: TechnicalSnapshot + Score + RiskScore + ConfidenceScore)
+- [ ] Composite scores for all Phase 1 companies in [0,100]
+- [ ] Score breakdown JSON complete
+- [ ] Stage 6a barrier verified (failing company absent from peer set)
+- [ ] Checkpoint A atomic transaction verified via simulated crash
+- [ ] **Must resolve the open config.yaml/pyyaml question before this milestone can read real scoring weights** (flagged since M1, still unresolved)
 
 ---
 
@@ -137,6 +153,21 @@
   - 73 tests passing total (59 from M0+M1 + 14 new).
 - **Next:** Start M3 — News + News Processing Engine. Mubasher discovery (XHR vs Playwright) is explicitly flagged as the highest-risk task in the architecture doc — time-box it to 2 days before falling back to a heavier approach.
 
+### Session 5 — 2026-07-01
+- Completed M3 — News + News Processing Engine in full:
+  - **Mubasher discovery resolved on day 1 of the 2-day time-box** — no XHR reverse-engineering or Playwright was needed at all. A company's stock page (`/markets/EGX/stocks/{ticker}`) is plain server-rendered HTML: a `.stock-overview-media-block` list gives the 6 most recent headlines + links, and each article page cleanly exposes its own published date and source label in rendered HTML (sitting alongside unrendered Angular template placeholders like `{{details.article.source}}` — picked the first element whose text doesn't still contain a literal `{{`). Same ticker convention as M1/M2 (base symbol, `.CA` stripped).
+  - **Schema gap, deliberately fixed this time (unlike CAR/NPL in M2)**: `news_items` had no column to record which lexicon version scored an item, but "lexicon version recorded per item" is an explicit M3 validation criterion we fully own (unlike CAR/NPL, which depends on data no source provides). Added `lexicon_version TEXT` via an idempotent additive migration in `db.py`, applied automatically by `init_db()` — verified live against the existing `data/egx.db` (with real M1/M2 data already in it) that no existing data was touched. Also switched `run_collection.py` to call `init_db()` unconditionally every run (it's fully idempotent) instead of only when the db file is missing, since that's how future migrations reach an existing database.
+  - `egxpm/engine/news_engine.py`: pure `score_news_item(item) -> NewsItem`. Lexicon-based sentiment `[-1,1]` + relevance `[0,1]`, versioned (`news_lexicon_v1`), English + Arabic terms.
+  - **Real bug caught while writing hand-labeled tests**: having both a singular and inflected form of the same word in one lexicon set (e.g. `"increase"` and `"increases"`) double-counted a single headline mention, because substring matching means the shorter form already matches inside the longer one. Fixed by keeping exactly one form per word family and adding a small script to verify programmatically that no lexicon entry is a substring of another in the same set.
+  - **Deliberate design choice, verified against real Arabic text before committing to it**: matching is plain substring search, not word-boundary regex. Arabic attaches grammatical suffixes directly onto word roots with no separator (e.g. "أرباحاً" = "أرباح" + accusative tanween), so a strict `\b` boundary would miss almost every real inflected Arabic form — confirmed live that `\b`-bounded matching failed on a real headline while substring matching succeeded. This does trade away some English precision (e.g. "fall" could match inside an unrelated word), but that's the documented v1 tradeoff — Arabic stemming/normalization is explicitly a "future seam, not v1" per the architecture doc.
+  - 21 News Engine tests, including the 10 hand-labeled headlines required by the validation criteria (5 English + 5 Arabic: positive/negative/neutral/tied cases).
+  - `egxpm/collectors/news_collector.py` (Mubasher) and `egxpm/collectors/egx_disclosure_collector.py` (EGX official disclosures — semi-manual v1, no automated feed exists, so this Collector just stamps consistent provenance on user-entered disclosures; no scraping).
+  - `egxpm/run_collection.py --type news`: 1.5s Mubasher rate limit. Scoring happens between collection and the single INSERT (not a later UPDATE) since `news_items` is append-only — the Job runs `score_news_item()` on each raw item before `save_news_item()`.
+  - `data/egx.db` populated with real data: 42 news items (6 per company) across the 7 covered companies, dates spanning weeks to ~4 months, confirmed `publisher_name` ("مباشر"/"خاص مباشر") always distinct from `data_source_id` ("mubasher"), confirmed `lexicon_version` set on all 42 rows.
+  - Same 5-company coverage gap (`ADA`, `BMM`, `CLOUD`, `ABR`, `EFGD`) held for Mubasher too — now confirmed across all 4 sources checked (yfinance, TradingView, StockAnalysis.com, Mubasher). This is very likely a hard, permanent Phase 1 data limitation for these 5 companies.
+  - 97 tests passing total (73 from M0-M2 + 24 new: 21 News Engine + 3 EGX Disclosure Collector).
+- **Next:** Start M4 — Scoring + Risk + Confidence Engines. The open `config.yaml`/`pyyaml` question (unresolved since M1) needs an answer before this milestone can read real scoring weights instead of hardcoded defaults — flag it to the user again if it comes up.
+
 ---
 
 ## Notes
@@ -148,5 +179,6 @@
 - Real Holding data (quantities, cost basis for ADA/BMM/CLOUD/PALM/NARE/ABR) has not been entered yet — only company + watchlist records are seeded. Needs to be entered before M5's dashboard can show real allocation.
 - yfinance has no price data at all for ADA, BMM, CLOUD, NARE, ABR, EFGD (6 of 12 Phase 1 companies — mostly small funds/thin instruments). TradingView covers NARE but still misses the other 5. This is a real EGX data-coverage gap, not a code bug — M2's Fundamentals Collector (StockAnalysis.com) may or may not have better coverage for these; worth checking early in M2.
 - **Update (M2)**: confirmed — StockAnalysis.com also 404s on ADA, BMM, CLOUD, ABR, EFGD, and also covers NARE (like TradingView). So the real, permanent Phase 1 coverage gap across all 3 sources checked so far is: **ADA, BMM, CLOUD, ABR, EFGD (5 of 12) have no data anywhere.** Treat this as a known data limitation going forward rather than re-investigating per milestone — these likely need a different/manual data source (e.g. EGX's own disclosure site) if they're ever to be scored.
+- **Update (M3)**: confirmed a 4th time — Mubasher also has zero news coverage for ADA, BMM, CLOUD, ABR, EFGD. This gap is now consistent across every data source checked (yfinance, TradingView, StockAnalysis.com, Mubasher). Treat as settled: these 5 companies cannot be scored with any automated source currently in this codebase. If they ever need to be, the EGX Disclosure Collector's manual-entry path is the only route.
 - config.yaml is not yet wired up to any runtime code (no YAML parser dependency resolved yet — see M1 session log). Jobs currently use hardcoded defaults matching its stated values.
 - CAR/NPL ratios (mentioned in the architecture doc as a BANK-schema deliverable) are NOT implemented — `financial_statements` schema has no fields for regulatory capital/RWA/NPL balances, and StockAnalysis.com's balance sheet page doesn't expose them either (only "Gross Loans" and a loan-loss reserve, not an NPL figure). `FinancialMetrics` simply omits these fields for now.
