@@ -1,7 +1,7 @@
 # EGX Portfolio Manager — Development Progress
 
 ## Current Status
-**Active Milestone: M5 — First Complete Job + Minimal Dashboard**
+**Active Milestone: M6 — Swing Job + Full Dashboard**
 **Last Updated: 2026-07-02**
 
 ---
@@ -15,7 +15,7 @@
 | M2 — Fundamentals + Financial Engine | ✅ Done | 2026-07-01 |
 | M3 — News + News Processing Engine | ✅ Done | 2026-07-01 |
 | M4 — Scoring + Risk + Confidence | ✅ Done | 2026-07-02 |
-| M5 — First Complete Job + Minimal Dashboard | ⏳ Not Started | — |
+| M5 — First Complete Job + Minimal Dashboard | ✅ Done | 2026-07-02 |
 | M6 — Swing Job + Full Dashboard | ⏳ Not Started | — |
 | M7 — Portfolio Review + Copilot | ⏳ Not Started | — |
 | M8 — Hardening | ⏳ Not Started | — |
@@ -103,19 +103,31 @@
 
 ## M5 — First Complete Job + Minimal Dashboard Checklist
 
-- [ ] Position Sizing Engine (ATR-based stop/target/size, portfolio heat check)
-- [ ] Reasoning Layer (Claude API, Structured Outputs, prompt caching) — needs ANTHROPIC_API_KEY in .env
-- [ ] Context Aggregator
-- [ ] run_longterm.py — the full 14-stage Long-Term Job pipeline (first real Job entry point; run_collection.py's 4 --type modes were always Collection-only, not the full pipeline)
-- [ ] RecommendationSupersession (implemented; verified on second run)
-- [ ] PortfolioSnapshot scheduled capture (origin="scheduled" at end of each Long-Term run)
-- [ ] Minimal Dashboard: Home, Long-Term Rankings, Job Status, Collector Status pages
-- [ ] Long-Term Job completes for all Phase 1 companies (the 6 with data — same coverage gap applies)
-- [ ] >= 1 Recommendation with valid frozen_package and rejected_alternatives field
-- [ ] portfolio_snapshot_id on Recommendation references existing snapshot captured before Checkpoint B
-- [ ] --dry-run produces Score rows but no Recommendation rows
-- [ ] Minimal Dashboard renders without error
-- [ ] **Needs user input: real Holding data (quantities/cost basis) has never been entered — dashboard/allocation pages need this to show anything real. Ask before this milestone needs it.**
+- [x] Position Sizing Engine (ATR-based stop/target/size, portfolio heat check) — built and tested, but NOT invoked by the Long-Term Job (Stage 9 is explicitly swing-only; will be used starting M6)
+- [x] Reasoning Layer (Claude API, Structured Outputs, prompt caching) — real ANTHROPIC_API_KEY added to .env, verified live
+- [x] Context Aggregator
+- [x] run_longterm.py — the full 14-stage Long-Term Job pipeline (first real Job entry point; run_collection.py's 4 --type modes were always Collection-only, not the full pipeline)
+- [x] RecommendationSupersession (implemented; verified on second run — real second run superseded the first ABUK recommendation)
+- [x] PortfolioSnapshot scheduled capture (origin="scheduled" at end of each Long-Term run)
+- [x] Minimal Dashboard: Home, Long-Term Rankings, Job Status, Collector Status pages
+- [x] Long-Term Job completes for all Phase 1 companies (6/12 with data — same coverage gap applies, verified live)
+- [x] >= 1 Recommendation with valid frozen_package and rejected_alternatives field (real: ABUK, HOLD, with a genuine 3-item rejected_alternatives list)
+- [x] portfolio_snapshot_id on Recommendation references existing snapshot captured before Checkpoint B (verified: snapshot captured_at 25s before recommendation created_at)
+- [x] --dry-run produces Score rows but no Recommendation rows (verified live, delta-based check)
+- [x] Minimal Dashboard renders without error (verified via Streamlit's AppTest, all 4 pages, zero exceptions)
+
+---
+
+## M6 — Swing Job + Full Dashboard Checklist
+
+- [ ] Swing Job (run_swing.py) — candidate filter with CORRECT AND/OR precedence: `(breakout OR unusual_volume OR trend=BULLISH) AND score >= threshold`, NOT the buggy `breakout OR unusual_volume OR (trend=BULLISH AND score>=threshold)`
+- [ ] ensure_fresh_data calls CollectorService directly (not nested Job) — already implemented this way in run_longterm.py, reuse the same helper
+- [ ] cron configuration with DST note
+- [ ] All 14 Dashboard pages (currently only 4 exist from M5) using DashboardReadRepository or a designated single-owner Repository
+- [ ] Swing candidate filter verified: breakout=True + score=15 -> BLOCKED; breakout=True + score=75 -> PASSES
+- [ ] ensure_fresh_data verified: no nested Job record created for inline collection
+- [ ] All 14 pages render against real DB data
+- [ ] Position Sizing Engine (built in M5) gets its first real caller here — Stage 9 is swing-only
 
 ---
 
@@ -203,6 +215,23 @@
   - **Deliberately did NOT build `run_longterm.py` this milestone** — it's explicitly an M5 deliverable. Instead wrote an integration test (`tests/test_m4_pipeline_integration.py`) that runs the real Stage 3-7 + Checkpoint A pipeline against real M1-M3 data, verifying both remaining validation criteria: composite scores for all 6 covered companies land in [0,100] with real differentiation (COMI=42.6, TMGH=41.7, PALM=48.0, SWDY=36.4, ABUK=68.0, EFIH=58.4), and the Stage 6a barrier correctly excludes a company that failed Stage 6 (a real `InsufficientDataError`) from its sector's peer D/E set.
   - 168 tests passing total (97 from M0-M3 + 71 new: 3 config + 23 Scoring Engine + 21 Risk Engine + 13 Confidence Engine + 6 SourceHealthService + 3 Checkpoint A + 2 M4 integration).
 - **Next:** Start M5 — First Complete Job + Minimal Dashboard. Will need `ANTHROPIC_API_KEY` set in `.env` for the Reasoning Layer, and will need to ask the user for real Holding data (quantities/cost basis) before the dashboard can show real allocation — both flagged as open items since earlier milestones.
+
+### Session 7 — 2026-07-02
+- Completed M5 — First Complete Job + Minimal Dashboard in full. This is the first milestone that produces a real, LLM-reasoned Recommendation end-to-end — asked the user for an `ANTHROPIC_API_KEY` before starting (they provided one; saved directly to `.env`, confirmed gitignored, verified with a real API call before building anything against it).
+  - `egxpm/engine/position_sizing_engine.py`: ATR-based stop/target/size + portfolio-heat guard, 9 tests. Two real gaps resolved: (1) `entry_price` isn't in the contract signature, so added `latest_close` to `TechnicalSnapshotResult` (the Technical Engine already computes it internally, just didn't expose it); (2) the portfolio-heat check's "open_risk" has no natural source (`AllocationCalculator` can't see stop losses on active Recommendations), so added `open_risk_egp` to `AllocationReport`, defaulting to 0.0. Used CLAUDE.md's complete formula (which divides the position cap by `entry_price`, keeping units in shares throughout) over the architecture doc's shorter version, which drops that division and would mix EGP/share-count units.
+  - **Position Sizing Engine is built but NOT called by the Long-Term Job** — Stage 9 is explicitly annotated "[swing only]" in the canonical pipeline. Long-term Recommendations carry `entry_price` for reference but no stop/target/size; the architecture doesn't specify a long-term position-sizing formula, so none was fabricated. It gets its first real caller in M6's Swing Job.
+  - `egxpm/llm/context_aggregator.py`: Stage 11, `build_context()` produces `CuratedContext`, 11 tests.
+  - `egxpm/llm/client.py` + `egxpm/llm/prompts.py`: the Reasoning Layer. Structured Outputs via Claude's forced tool-use (not a JSON-mode flag), prompt caching on the system prompt. **Two real bugs caught via live testing against the actual API** (not assumed from docs):
+    1. *Hallucination*: since `CuratedContext` only carries `company_id` (the `build_context` contract has no separate `company` parameter), Claude invented a plausible-but-wrong full company name ("Tamer Group Holding" for TMGH — actually Talaat Moustafa Group). Fixed with an explicit identity-guard instruction in both system prompts rather than expanding the function signature; verified live that the model now correctly refers to the company only by its ticker.
+    2. *Schema drift*: Claude (Haiku) intermittently emitted `key_risks`/`rejected_alternatives` as a markdown string or malformed pseudo-tool-call text instead of a JSON array, despite the schema declaring them as arrays — correctly caught as `LLMSchemaValidationError`. Fixed with explicit Field descriptions ("never a single string") plus bumping retries from 1 to 3 attempts, which took a small live sample from failing ~40% of calls to 5/5 successful.
+  - **Checkpoint B**: `RecommendationRepository.save_checkpoint_b()` (Recommendation + optional RecommendationSupersession), same conn-threading pattern as Checkpoint A, verified via a real FK-violation crash simulation.
+  - `egxpm/run_longterm.py`: the full 14-stage Long-Term Job. Sequences `ensure_fresh_data` (calls `CollectorService` directly, no nested Job row, per the architecture doc), Financial/Technical/News Engines, Scoring Engine, the Stage 6a sector D/E barrier, Risk + Confidence Engines, Checkpoint A, Portfolio Engine, `PortfolioSnapshot` (origin=scheduled), Context Aggregation, the Reasoning Layer, and Checkpoint B with `RecommendationSupersession`.
+  - **Verified live end-to-end, not just unit tested**: `--dry-run` produced 6 Score+Risk+Confidence rows and 0 new Recommendations; a real run produced 1 real Recommendation (ABUK, HOLD) with a genuine `rejected_alternatives` list reasoning through BUY/ADD/SELL and citing the real 0.0 technical score and 0.75 confidence as reasons; `portfolio_snapshot_id` correctly references a snapshot captured ~25s before the recommendation; running the Job a second time correctly superseded the first ABUK recommendation via `RecommendationSupersession`.
+  - Caught a real test-design bug of my own while verifying: after populating the real `data/egx.db` with an actual recommendation, `tests/test_run_longterm.py`'s dry-run test (which copies that real db) started failing because it asserted an absolute `rec_count == 0` instead of checking the delta introduced by the test's own dry-run call. Fixed to compare before/after counts.
+  - `app.py`: Minimal Dashboard — Home (allocation, latest PortfolioSnapshot, recent Recommendations with reasoning/risks/rejected-alternatives), Long-Term Rankings (WATCHLIST companies ranked by composite_score with full breakdown), Job Status, Collector Status. Added `DashboardReadRepository.get_longterm_rankings()`.
+  - **Tooling note**: the interactive preview tool couldn't attach to this project's `uv`-managed venv — `PermissionError` reading `.venv/pyvenv.cfg`, traced to a `com.apple.provenance` extended attribute the sandboxed preview process can't read past. Not a bug in the app. Verified dashboard correctness instead via Streamlit's built-in `AppTest` (in-process headless testing, now `tests/test_dashboard.py`) and a manually-started real server (`curl` HTTP 200, clean startup log, no errors).
+  - 209 tests passing total (168 from M0-M4 + 41 new: 9 Position Sizing + 11 Context Aggregator + 8 LLM client + 3 Checkpoint B + 6 run_longterm + 4 dashboard).
+- **Next:** Start M6 — Swing Job + Full Dashboard. The Swing candidate filter's AND/OR precedence bug is explicitly called out in CLAUDE.md as a named pitfall to avoid — double-check the implementation against the two given test cases before considering it done. Position Sizing Engine (built in M5, unused until now) gets its first real caller.
 
 ---
 
