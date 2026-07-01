@@ -40,7 +40,7 @@ class PortfolioRepository:
     def get_latest_snapshot(self) -> Optional[PortfolioSnapshot]:
         with connect(self.db_path) as conn:
             row = conn.execute(
-                "SELECT * FROM portfolio_snapshots ORDER BY captured_at DESC LIMIT 1"
+                "SELECT * FROM portfolio_snapshots ORDER BY captured_at DESC, rowid DESC LIMIT 1"
             ).fetchone()
             return self._row_to_snapshot(row) if row else None
 

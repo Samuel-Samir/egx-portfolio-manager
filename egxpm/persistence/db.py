@@ -511,9 +511,46 @@ def seed_phase1_companies(conn: sqlite3.Connection) -> None:
         )
 
 
+def seed_phase1_watchlist(conn: sqlite3.Connection) -> None:
+    """Every Phase 1 company passes CANDIDATE -> WATCHLIST.
+
+    A Company cannot become a Holding without first existing as a
+    WatchlistEntry (invariant, Section 10). Actual Holding rows (quantity,
+    average_cost) are entered separately since that is the user's real
+    financial data, not something to seed.
+    """
+    now = _utcnow()
+    for company in PHASE1_COMPANIES:
+        company_id = company["company_id"]
+        exists = conn.execute(
+            "SELECT 1 FROM watchlist_history WHERE company_id = ?", (company_id,)
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """
+            INSERT INTO watchlist_history
+                (history_id, company_id, state, state_changed_at, transition_type,
+                 reference_type, reference_id, created_at)
+            VALUES (?, ?, 'CANDIDATE', ?, 'candidate_discovered', NULL, NULL, ?)
+            """,
+            (f"{company_id}-watchlist-candidate-seed", company_id, now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO watchlist_history
+                (history_id, company_id, state, state_changed_at, transition_type,
+                 reference_type, reference_id, created_at)
+            VALUES (?, ?, 'WATCHLIST', ?, 'user_added_to_watchlist', NULL, NULL, ?)
+            """,
+            (f"{company_id}-watchlist-added-seed", company_id, now, now),
+        )
+
+
 def init_db(db_path: str | Path) -> None:
     """Create schema and seed reference data. Idempotent."""
     with connect(db_path) as conn:
         create_schema(conn)
         seed_data_sources(conn)
         seed_phase1_companies(conn)
+        seed_phase1_watchlist(conn)

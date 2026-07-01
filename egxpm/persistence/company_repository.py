@@ -147,7 +147,7 @@ class CompanyRepository:
                 """
                 SELECT state FROM watchlist_history
                 WHERE company_id = ?
-                ORDER BY state_changed_at DESC, created_at DESC
+                ORDER BY state_changed_at DESC, rowid DESC
                 LIMIT 1
                 """,
                 (company_id,),
@@ -159,7 +159,7 @@ class CompanyRepository:
             rows = conn.execute(
                 """
                 SELECT * FROM watchlist_history WHERE company_id = ?
-                ORDER BY state_changed_at, created_at
+                ORDER BY state_changed_at ASC, rowid ASC
                 """,
                 (company_id,),
             ).fetchall()
@@ -170,9 +170,11 @@ class CompanyRepository:
             rows = conn.execute(
                 """
                 SELECT company_id, state FROM watchlist_history w
-                WHERE state_changed_at = (
-                    SELECT MAX(state_changed_at) FROM watchlist_history
+                WHERE w.rowid = (
+                    SELECT rowid FROM watchlist_history
                     WHERE company_id = w.company_id
+                    ORDER BY state_changed_at DESC, rowid DESC
+                    LIMIT 1
                 )
                 """
             ).fetchall()
@@ -407,7 +409,7 @@ class CompanyRepository:
             row = conn.execute(
                 """
                 SELECT * FROM technical_reference_snapshots WHERE company_id = ?
-                ORDER BY fetched_at DESC LIMIT 1
+                ORDER BY fetched_at DESC, rowid DESC LIMIT 1
                 """,
                 (company_id,),
             ).fetchone()
@@ -453,7 +455,7 @@ class CompanyRepository:
             row = conn.execute(
                 """
                 SELECT * FROM technical_snapshots WHERE company_id = ?
-                ORDER BY computed_at DESC LIMIT 1
+                ORDER BY computed_at DESC, rowid DESC LIMIT 1
                 """,
                 (company_id,),
             ).fetchone()
@@ -507,7 +509,7 @@ class CompanyRepository:
     def get_latest_score(self, company_id: str) -> Optional[Score]:
         with connect(self.db_path) as conn:
             row = conn.execute(
-                "SELECT * FROM scores WHERE company_id = ? ORDER BY computed_at DESC LIMIT 1",
+                "SELECT * FROM scores WHERE company_id = ? ORDER BY computed_at DESC, rowid DESC LIMIT 1",
                 (company_id,),
             ).fetchone()
             return self._row_to_score(row) if row else None

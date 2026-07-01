@@ -191,7 +191,7 @@ class OperationalRepository:
     def get_latest_configuration_snapshot(self) -> Optional[ConfigurationSnapshot]:
         with connect(self.db_path) as conn:
             row = conn.execute(
-                "SELECT * FROM configuration_snapshots ORDER BY created_at DESC LIMIT 1"
+                "SELECT * FROM configuration_snapshots ORDER BY created_at DESC, rowid DESC LIMIT 1"
             ).fetchone()
             return self._row_to_config(row) if row else None
 

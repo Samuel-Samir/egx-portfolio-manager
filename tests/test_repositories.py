@@ -59,6 +59,18 @@ def test_company_round_trips(db_path):
     assert company.name == "Commercial International Bank (CIB)"
 
 
+def test_phase1_companies_seeded_into_watchlist(db_path):
+    repo = CompanyRepository(db_path)
+    for company_id in ["ADA", "BMM", "CLOUD", "PALM", "NARE", "ABR",
+                        "COMI", "TMGH", "SWDY", "EFGD", "ABUK", "EFIH"]:
+        assert repo.get_watchlist_state(company_id) == WatchlistState.WATCHLIST
+        history = repo.get_watchlist_history(company_id)
+        assert [h.transition_type for h in history] == [
+            WatchlistTransitionType.CANDIDATE_DISCOVERED,
+            WatchlistTransitionType.USER_ADDED_TO_WATCHLIST,
+        ]
+
+
 def test_company_sector_change_never_overwrites_history(db_path):
     repo = CompanyRepository(db_path)
     initial_history = repo.get_sector_history(COMPANY_ID)
@@ -99,7 +111,9 @@ def test_watchlist_state_tracks_latest_transition(db_path):
         transition_type=WatchlistTransitionType.USER_ADDED_TO_WATCHLIST,
     ))
     assert repo.get_watchlist_state(COMPANY_ID) == WatchlistState.WATCHLIST
-    assert repo.list_companies_in_state(WatchlistState.WATCHLIST) == [COMPANY_ID]
+    # All Phase 1 companies are seeded into WATCHLIST already (init_db);
+    # COMPANY_ID's additional transitions must not remove it from that set.
+    assert COMPANY_ID in repo.list_companies_in_state(WatchlistState.WATCHLIST)
 
 
 def test_holding_round_trip_and_mutable_update(db_path):

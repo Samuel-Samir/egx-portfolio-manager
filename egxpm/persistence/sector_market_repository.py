@@ -38,7 +38,7 @@ class SectorMarketRepository:
     def get_latest_sector_summary(self, sector: str) -> Optional[SectorSummary]:
         with connect(self.db_path) as conn:
             row = conn.execute(
-                "SELECT * FROM sector_summaries WHERE sector = ? ORDER BY computed_at DESC LIMIT 1",
+                "SELECT * FROM sector_summaries WHERE sector = ? ORDER BY computed_at DESC, rowid DESC LIMIT 1",
                 (sector,),
             ).fetchone()
             return self._row_to_sector_summary(row) if row else None
@@ -83,7 +83,7 @@ class SectorMarketRepository:
     def get_latest_market_summary(self) -> Optional[MarketSummary]:
         with connect(self.db_path) as conn:
             row = conn.execute(
-                "SELECT * FROM market_summaries ORDER BY computed_at DESC LIMIT 1"
+                "SELECT * FROM market_summaries ORDER BY computed_at DESC, rowid DESC LIMIT 1"
             ).fetchone()
             return self._row_to_market_summary(row) if row else None
 
