@@ -598,3 +598,21 @@ class CompanyRepository:
             d = _util.row_to_dict(row)
             d["breakdown"] = _util.loads(d["breakdown"], {})
             return ConfidenceScore(**d)
+
+    # ------------------------------------------------------------
+    # Checkpoint A (Stage 10) — one atomic transaction across all four
+    # Stage 6-7 artifacts. Either all four rows land, or none do.
+    # ------------------------------------------------------------
+
+    def save_checkpoint_a(
+        self,
+        technical_snapshot: TechnicalSnapshot,
+        score: Score,
+        risk_score: RiskScore,
+        confidence_score: ConfidenceScore,
+    ) -> None:
+        with connect(self.db_path) as conn:
+            self.save_technical_snapshot(technical_snapshot, conn=conn)
+            self.save_score(score, conn=conn)
+            self.save_risk_score(risk_score, conn=conn)
+            self.save_confidence_score(confidence_score, conn=conn)
