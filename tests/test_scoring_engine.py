@@ -43,7 +43,7 @@ def _technical_snapshot(**overrides):
     return TechnicalSnapshotResult(
         indicators=TechnicalIndicators(**indicators_defaults),
         signals=TechnicalSignals(**signals_defaults),
-        computed_through_date="2026-06-30", window_size=200,
+        computed_through_date="2026-06-30", window_size=200, latest_close=100.0,
     )
 
 

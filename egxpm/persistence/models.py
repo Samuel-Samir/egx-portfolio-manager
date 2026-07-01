@@ -518,6 +518,11 @@ class AllocationReport(BaseModel):
     by_stock_pct: dict[str, float] = Field(default_factory=dict)
     target_deviation: dict[str, float] = Field(default_factory=dict)
     stock_constraint_violations: list[str] = Field(default_factory=list)
+    # Not computed by AllocationCalculator (it has no visibility into stop
+    # losses on active Recommendations) — Orchestration sets this
+    # separately before handing an AllocationReport to the Position Sizing
+    # Engine's portfolio-heat check. Defaults to 0.0 everywhere else.
+    open_risk_egp: float = 0.0
 
 
 class ProposedAction(BaseModel):

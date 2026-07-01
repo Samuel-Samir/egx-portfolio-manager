@@ -53,6 +53,13 @@ class TechnicalSnapshotResult(BaseModel):
     signals: TechnicalSignals
     computed_through_date: str
     window_size: int
+    # The Position Sizing Engine needs an entry price (Stage 9), but neither
+    # its contract signature nor the persisted TechnicalSnapshot row carries
+    # one. Rather than a schema change for a single derived value, the
+    # Technical Engine exposes the close price it already computes
+    # internally — Position Sizing consumes the same in-memory
+    # TechnicalSnapshotResult produced earlier in the same Job run.
+    latest_close: float
 
 
 def _last(series: pd.Series | None) -> float | None:
@@ -167,4 +174,5 @@ def calculate_technical_snapshot(
         signals=TechnicalSignals(trend=trend, breakout=breakout, unusual_volume=unusual_volume),
         computed_through_date=window_candles[-1].candle_date,
         window_size=window,
+        latest_close=float(price),
     )
