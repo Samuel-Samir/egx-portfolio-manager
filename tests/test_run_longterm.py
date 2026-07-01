@@ -48,10 +48,19 @@ def test_freshness_fraction_within_threshold_is_full():
 # ------------------------------------------------------------
 
 def test_dry_run_produces_scores_but_no_recommendations(tmp_path):
+    """data/egx.db may already carry Recommendations from earlier real runs,
+    so this checks the delta introduced by THIS --dry-run call, not an
+    absolute count of zero.
+    """
     _require_real_db()
     import shutil
     scratch_db = str(tmp_path / "egx_scratch.db")
     shutil.copy(REAL_DB_PATH, scratch_db)
+
+    with connect(scratch_db) as conn:
+        rec_count_before = conn.execute("SELECT COUNT(*) c FROM recommendations").fetchone()["c"]
+        score_count_before = conn.execute("SELECT COUNT(*) c FROM scores").fetchone()["c"]
+        snapshot_count_before = conn.execute("SELECT COUNT(*) c FROM portfolio_snapshots").fetchone()["c"]
 
     exit_code = main(["--dry-run", "--db-path", scratch_db])
 
@@ -62,9 +71,9 @@ def test_dry_run_produces_scores_but_no_recommendations(tmp_path):
         confidence_count = conn.execute("SELECT COUNT(*) c FROM confidence_scores").fetchone()["c"]
         snapshot_count = conn.execute("SELECT COUNT(*) c FROM portfolio_snapshots").fetchone()["c"]
 
-    assert score_count > 0
+    assert score_count > score_count_before
     assert risk_count == score_count
     assert confidence_count == score_count
-    assert rec_count == 0
-    assert snapshot_count == 1
+    assert rec_count == rec_count_before  # --dry-run creates zero new Recommendations
+    assert snapshot_count == snapshot_count_before + 1
     assert exit_code in (0, 1)  # 1 because the known 6-company coverage gap fails those companies
