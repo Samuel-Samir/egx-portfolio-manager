@@ -123,6 +123,7 @@ class RunStatus(str, Enum):
 class JobType(str, Enum):
     PRICE = "price"
     TECHNICAL_REFERENCE = "technical_reference"
+    TECHNICAL = "technical"
     NEWS = "news"
     FUNDAMENTALS = "fundamentals"
     SWING = "swing"
