@@ -43,3 +43,23 @@ class DashboardReadRepository:
             state.value: self.company_repo.list_companies_in_state(state)
             for state in WatchlistState
         }
+
+    def get_longterm_rankings(self) -> list[dict]:
+        """WATCHLIST companies with a Score on record, ranked by
+        composite_score descending (nulls last)."""
+        watchlist_ids = self.company_repo.list_companies_in_state(WatchlistState.WATCHLIST)
+        rows = []
+        for company_id in watchlist_ids:
+            score = self.company_repo.get_latest_score(company_id)
+            if score is None:
+                continue
+            company = self.company_repo.get_company(company_id)
+            rows.append({"company": company, "score": score})
+        rows.sort(
+            key=lambda row: (
+                row["score"].composite_score is not None,
+                row["score"].composite_score or 0.0,
+            ),
+            reverse=True,
+        )
+        return rows
