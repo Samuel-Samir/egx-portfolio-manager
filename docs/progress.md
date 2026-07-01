@@ -11,7 +11,7 @@
 | Milestone | Status | Completed Date |
 |-----------|--------|----------------|
 | M0 — Foundation | ✅ Done | 2026-07-01 |
-| M1 — Price + Technical Engine | ⏳ Not Started | — |
+| M1 — Price + Technical Engine | 🔄 In Progress | — |
 | M2 — Fundamentals + Financial Engine | ⏳ Not Started | — |
 | M3 — News + News Processing Engine | ⏳ Not Started | — |
 | M4 — Scoring + Risk + Confidence | ⏳ Not Started | — |
@@ -41,6 +41,21 @@
 - [x] dashboard_read_repository.py (stubs)
 - [x] AllocationCalculator in shared/
 - [x] Unit tests — domain objects round-trip through Repository (43 tests passing)
+
+---
+
+## M1 — Price + Technical Engine Checklist
+
+- [ ] shared/exceptions.py (business/data + programmer error taxonomy)
+- [ ] collectors/collector_service.py (retry policy: transient 3x exponential backoff 2/4/8s; structural no retry)
+- [ ] collectors/price_collector.py (yfinance, .CA tickers)
+- [ ] collectors/technical_reference_collector.py (tradingview-ta, reference only)
+- [ ] engine/technical_engine.py (pandas-ta-classic, all indicators + signals)
+- [ ] Unit tests for all Technical Engine contracts
+- [ ] run_collection.py entry point (--type price / technical_reference / technical)
+- [ ] 5 years OHLCV collected for all Phase 1 companies (best effort — see coverage note)
+- [ ] TechnicalSnapshot rows written to DB
+- [ ] Per-company failure isolation verified
 
 ---
 
