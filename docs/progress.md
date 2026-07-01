@@ -1,7 +1,7 @@
 # EGX Portfolio Manager — Development Progress
 
 ## Current Status
-**Active Milestone: M2 — Fundamentals + Financial Engine**
+**Active Milestone: M3 — News + News Processing Engine**
 **Last Updated: 2026-07-01**
 
 ---
@@ -12,7 +12,7 @@
 |-----------|--------|----------------|
 | M0 — Foundation | ✅ Done | 2026-07-01 |
 | M1 — Price + Technical Engine | ✅ Done | 2026-07-01 |
-| M2 — Fundamentals + Financial Engine | 🔄 In Progress | — |
+| M2 — Fundamentals + Financial Engine | ✅ Done | 2026-07-01 |
 | M3 — News + News Processing Engine | ⏳ Not Started | — |
 | M4 — Scoring + Risk + Confidence | ⏳ Not Started | — |
 | M5 — First Complete Job + Minimal Dashboard | ⏳ Not Started | — |
@@ -61,13 +61,27 @@
 
 ## M2 — Fundamentals + Financial Engine Checklist
 
-- [ ] engine/financial_engine.py (StatementSchema branching: INDUSTRIAL + BANK; INSURANCE/HOLDING stubs)
-- [ ] Growth trend detection (accelerating/stable/decelerating/insufficient_data, >=4 periods)
-- [ ] Unit tests hand-verified against CIB (BANK) and TMG (INDUSTRIAL) values
-- [ ] collectors/fundamentals_collector.py (StockAnalysis.com, 2s rate limit, retry, ScraperSchemaChangedError)
-- [ ] run_collection.py --type fundamentals
-- [ ] FinancialStatements for all Phase 1 companies (>= 4 quarters) — best effort, see coverage note
-- [ ] Bank schema produces operating_margin=null with flag, not wrong number (verified against real CIB data)
+- [x] engine/financial_engine.py (StatementSchema branching: INDUSTRIAL + BANK; INSURANCE/HOLDING stubs)
+- [x] Growth trend detection (accelerating/stable/decelerating/insufficient_data, >=4 periods)
+- [x] Unit tests hand-verified against CIB (BANK) and TMG (INDUSTRIAL) values (14 tests, 100% passing)
+- [x] collectors/fundamentals_collector.py (StockAnalysis.com, 2s rate limit, retry, ScraperSchemaChangedError)
+- [x] run_collection.py --type fundamentals
+- [x] FinancialStatements for all Phase 1 companies (>= 4 quarters) — **7/12 companies, 19-20 quarters each (same coverage gap as M1)**
+- [x] Bank schema produces operating_margin=null with flag, not wrong number (verified against real CIB data: `operating_margin=None`, `bank_schema_flag=True`, vs. TMG's real `operating_margin=0.363`)
+
+---
+
+## M3 — News + News Processing Engine Checklist
+
+- [ ] Mubasher discovery (2-day time-box: XHR vs Playwright) — highest-risk task this milestone
+- [ ] collectors/news_collector.py (Mubasher)
+- [ ] EGX Disclosure Collector (semi-manual v1)
+- [ ] News Processing Engine (lexicon-based, English + Arabic transliteration)
+- [ ] run_collection.py --type news
+- [ ] News items for all Phase 1 companies (>= 2 weeks)
+- [ ] Sentiment correct for 10 manually-labeled test headlines
+- [ ] publisher_name distinct from data_source_id
+- [ ] Lexicon version recorded per item
 
 ---
 
@@ -109,6 +123,20 @@
 - **Open question, not yet resolved**: `config.yaml` needs a YAML parser at runtime (job scripts need `db_path`, thresholds, model names, etc.) but `pyyaml` isn't in CLAUDE.md's specified `pyproject.toml` dependency list. Asked the user how to proceed (add pyyaml / convert to TOML+tomllib / hardcode as Python constants) — question was dismissed without an answer. `run_collection.py` currently sidesteps this entirely with hardcoded defaults matching config.yaml's stated values (e.g. `db_path="data/egx.db"`, `window=200`). **This needs to be resolved before any Job reads tunable config (scoring weights, thresholds, model names) — will come up again by M4 (Scoring) at the latest.**
 - **Next:** Start M2 — Fundamentals + Financial Engine
 
+### Session 4 — 2026-07-01
+- Completed M2 — Fundamentals + Financial Engine in full:
+  - `egxpm/engine/financial_engine.py`: pure `calculate_financial_metrics(statements, statement_schema)`. Unlike the Technical Engine, statements do NOT need to be pre-sorted by caller — sorted internally by `period_end` — since CLAUDE.md's Financial Engine contract (unlike the Technical Engine's) doesn't list chronological order as a stated precondition.
+  - Growth trend detection (`accelerating`/`stable`/`decelerating`/`insufficient_data`) looks only at the most recent 4 periods' growth deltas, not the entire multi-year history, so a long-lived company's classification reflects recent trajectory rather than being smoothed out by unrelated years-old swings. This wasn't specified in the docx beyond ">= 4 periods" — a reasonable, documented design choice.
+  - **CAR/NPL ratios were explicitly listed in the architecture doc as a BANK schema deliverable ("CAR/NPL ratios added"), but were deliberately NOT implemented.** The `financial_statements` table (fixed at M0, not modified) has no fields for regulatory capital, risk-weighted assets, or non-performing loan balances — and live inspection of StockAnalysis.com's actual balance sheet page (the M2 data source) confirmed it doesn't expose those either (only "Gross Loans" and "Allowance for Loan Losses", which is a reserve, not an NPL balance). Rather than inventing a schema migration for data no available source actually provides, or fabricating an approximation, `FinancialMetrics` simply omits CAR/NPL fields for now. `operating_margin=None` + `bank_schema_flag=True` — the one thing the M2 validation criteria actually require — is fully implemented and verified against real data.
+  - 14 Financial Engine unit tests, hand-computed against synthetic-but-structurally-realistic CIB (BANK) and TMG (INDUSTRIAL) fixtures — every ratio value in the tests was computed by hand and matched exactly (e.g. `debt_to_equity == 2070/230 == 9.0`).
+  - `egxpm/collectors/fundamentals_collector.py`: scrapes StockAnalysis.com's income statement, balance sheet, and cash flow pages (`?p=quarterly`). Extracts `period_end` directly from each header cell's `id="YYYY-MM-DD"` attribute rather than parsing display text like `"Mar '26Mar 31, 2026"` — much more robust than text parsing. Deliberately ignores the site's own precomputed growth-%/margin rows; the Financial Engine always computes ratios from raw figures itself (one canonical implementation, never trusting a second source's precomputed number).
+  - **Real bug caught via live testing**: the original missing-field check raised `ScraperSchemaChangedError` if *any* whitelisted field wasn't found anywhere on a page — but BANK income statements genuinely have no "Operating Income" row at all (confirmed live against COMI's real page), which is an expected schema difference, not a broken scrape. Fixed to only raise when *none* of the whitelisted fields matched anything, which is the actual signal of a real layout change.
+  - `egxpm/run_collection.py --type fundamentals`: 2s StockAnalysis.com rate limit applied once per company (matching the docx's literal wording "between company requests", not between the 3 sub-page requests within one company).
+  - **StockAnalysis.com coverage gap confirmed to match M1's exactly**: same 7/12 companies work (`PALM`→`PHDC`, `COMI`, `TMGH`, `SWDY`, `ABUK`, `EFIH`, plus `NARE` — StockAnalysis and TradingView both cover NARE; only Yahoo Finance doesn't), same 5 (`ADA`, `BMM`, `CLOUD`, `ABR`, `EFGD`) return 404 everywhere. This is very likely a structural fact about these 5 tickers (thin/inactive instruments), not a per-source quirk — worth treating as a known, permanent Phase 1 data gap rather than re-investigating in future milestones.
+  - `data/egx.db` populated with real data: 19-20 quarters (~5 years) of `FinancialStatement` rows for the 7 covered companies. Verified the Financial Engine end-to-end against this real data: CIB (BANK) → `operating_margin=None`, TMG (INDUSTRIAL) → `operating_margin=0.363`.
+  - 73 tests passing total (59 from M0+M1 + 14 new).
+- **Next:** Start M3 — News + News Processing Engine. Mubasher discovery (XHR vs Playwright) is explicitly flagged as the highest-risk task in the architecture doc — time-box it to 2 days before falling back to a heavier approach.
+
 ---
 
 ## Notes
@@ -119,4 +147,6 @@
 - Local dev environment uses a `uv`-managed Python 3.12 venv at `.venv/` (system Python is 3.9). Activate with `source .venv/bin/activate`, or invoke directly via `.venv/bin/python` / `.venv/bin/pytest`.
 - Real Holding data (quantities, cost basis for ADA/BMM/CLOUD/PALM/NARE/ABR) has not been entered yet — only company + watchlist records are seeded. Needs to be entered before M5's dashboard can show real allocation.
 - yfinance has no price data at all for ADA, BMM, CLOUD, NARE, ABR, EFGD (6 of 12 Phase 1 companies — mostly small funds/thin instruments). TradingView covers NARE but still misses the other 5. This is a real EGX data-coverage gap, not a code bug — M2's Fundamentals Collector (StockAnalysis.com) may or may not have better coverage for these; worth checking early in M2.
+- **Update (M2)**: confirmed — StockAnalysis.com also 404s on ADA, BMM, CLOUD, ABR, EFGD, and also covers NARE (like TradingView). So the real, permanent Phase 1 coverage gap across all 3 sources checked so far is: **ADA, BMM, CLOUD, ABR, EFGD (5 of 12) have no data anywhere.** Treat this as a known data limitation going forward rather than re-investigating per milestone — these likely need a different/manual data source (e.g. EGX's own disclosure site) if they're ever to be scored.
 - config.yaml is not yet wired up to any runtime code (no YAML parser dependency resolved yet — see M1 session log). Jobs currently use hardcoded defaults matching its stated values.
+- CAR/NPL ratios (mentioned in the architecture doc as a BANK-schema deliverable) are NOT implemented — `financial_statements` schema has no fields for regulatory capital/RWA/NPL balances, and StockAnalysis.com's balance sheet page doesn't expose them either (only "Gross Loans" and a loan-loss reserve, not an NPL figure). `FinancialMetrics` simply omits these fields for now.
