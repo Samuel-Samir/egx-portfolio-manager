@@ -4,6 +4,7 @@ Usage:
     python -m egxpm.run_collection --type price
     python -m egxpm.run_collection --type technical_reference
     python -m egxpm.run_collection --type technical
+    python -m egxpm.run_collection --type fundamentals
 
 A thin orchestrator: sequences calls to Collectors/Engine and Repositories.
 Contains zero business logic of its own. Each company is isolated — one
@@ -19,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from egxpm.collectors.collector_service import CollectorService
+from egxpm.collectors.fundamentals_collector import collect_fundamentals
 from egxpm.collectors.price_collector import collect_price_candles
 from egxpm.collectors.technical_reference_collector import collect_technical_reference
 from egxpm.engine.technical_engine import ENGINE_VERSION, calculate_technical_snapshot
@@ -30,6 +32,7 @@ from egxpm.shared.exceptions import BusinessDataError
 
 DEFAULT_DB_PATH = "data/egx.db"
 TRADINGVIEW_MIN_DELAY_SECONDS = 1.5
+STOCKANALYSIS_MIN_DELAY_SECONDS = 2.0
 
 
 def _now() -> str:
@@ -134,10 +137,39 @@ def _run_technical(
         operational_repo.save_collection_run(run)
 
 
+def _run_fundamentals(
+    company_repo: CompanyRepository, operational_repo: OperationalRepository, job: Job
+) -> None:
+    service = CollectorService()
+    for company in company_repo.list_companies(rollout_phase="phase1"):
+        run = CollectionRun(
+            job_id=job.job_id, data_source_id="stockanalysis", company_id=company.company_id
+        )
+        try:
+            statements = service.collect(
+                lambda cid=company.company_id, rid=run.collection_run_id: collect_fundamentals(
+                    cid, rid
+                ),
+                min_delay_seconds=STOCKANALYSIS_MIN_DELAY_SECONDS,
+            )
+            for statement in statements:
+                company_repo.save_financial_statement(statement)
+            run.status = RunStatus.COMPLETED
+            run.records_collected = len(statements)
+            job.companies_processed += 1
+        except BusinessDataError as exc:
+            run.status = RunStatus.FAILED
+            run.error_message = str(exc)
+            job.companies_failed += 1
+        run.completed_at = _now()
+        operational_repo.save_collection_run(run)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="EGX Portfolio Manager collection jobs")
     parser.add_argument(
-        "--type", required=True, choices=["price", "technical_reference", "technical"]
+        "--type", required=True,
+        choices=["price", "technical_reference", "technical", "fundamentals"],
     )
     parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
     parser.add_argument("--period", default="5y", help="yfinance history period (--type price only)")
@@ -151,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         "price": JobType.PRICE,
         "technical_reference": JobType.TECHNICAL_REFERENCE,
         "technical": JobType.TECHNICAL,
+        "fundamentals": JobType.FUNDAMENTALS,
     }
 
     company_repo = CompanyRepository(args.db_path)
@@ -165,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         _run_technical_reference(company_repo, operational_repo, job)
     elif args.type == "technical":
         _run_technical(company_repo, operational_repo, job, args.window)
+    elif args.type == "fundamentals":
+        _run_fundamentals(company_repo, operational_repo, job)
 
     job.status = RunStatus.COMPLETED if job.companies_failed == 0 else RunStatus.PARTIAL
     job.completed_at = _now()
