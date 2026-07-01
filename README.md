@@ -1,0 +1,1 @@
+# egx-portfolio-manager
