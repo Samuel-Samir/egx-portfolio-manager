@@ -12,7 +12,7 @@
 |-----------|--------|----------------|
 | M0 — Foundation | ✅ Done | 2026-07-01 |
 | M1 — Price + Technical Engine | ✅ Done | 2026-07-01 |
-| M2 — Fundamentals + Financial Engine | ⏳ Not Started | — |
+| M2 — Fundamentals + Financial Engine | 🔄 In Progress | — |
 | M3 — News + News Processing Engine | ⏳ Not Started | — |
 | M4 — Scoring + Risk + Confidence | ⏳ Not Started | — |
 | M5 — First Complete Job + Minimal Dashboard | ⏳ Not Started | — |
@@ -56,6 +56,18 @@
 - [x] 5 years OHLCV collected for all Phase 1 companies — **partial by necessity, not a bug: 6/12 (see coverage note below)**
 - [x] TechnicalSnapshot rows written to DB (for the 6 companies with candle data)
 - [x] Per-company failure isolation verified (live: yfinance 6/12 failures didn't stop the job; TradingView 5/12 failures likewise isolated)
+
+---
+
+## M2 — Fundamentals + Financial Engine Checklist
+
+- [ ] engine/financial_engine.py (StatementSchema branching: INDUSTRIAL + BANK; INSURANCE/HOLDING stubs)
+- [ ] Growth trend detection (accelerating/stable/decelerating/insufficient_data, >=4 periods)
+- [ ] Unit tests hand-verified against CIB (BANK) and TMG (INDUSTRIAL) values
+- [ ] collectors/fundamentals_collector.py (StockAnalysis.com, 2s rate limit, retry, ScraperSchemaChangedError)
+- [ ] run_collection.py --type fundamentals
+- [ ] FinancialStatements for all Phase 1 companies (>= 4 quarters) — best effort, see coverage note
+- [ ] Bank schema produces operating_margin=null with flag, not wrong number (verified against real CIB data)
 
 ---
 
