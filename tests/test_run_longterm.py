@@ -1,10 +1,9 @@
 import os
-from datetime import date, timedelta
 
 import pytest
 
 from egxpm.persistence.db import connect
-from egxpm.run_longterm import _freshness_fraction, main
+from egxpm.run_longterm import main
 
 REAL_DB_PATH = "data/egx.db"
 
@@ -12,35 +11,6 @@ REAL_DB_PATH = "data/egx.db"
 def _require_real_db():
     if not os.path.exists(REAL_DB_PATH):
         pytest.skip(f"{REAL_DB_PATH} not present — run M1-M3 collection jobs first")
-
-
-# ------------------------------------------------------------
-# _freshness_fraction
-# ------------------------------------------------------------
-
-def test_freshness_fraction_fresh_data_is_1():
-    today = date.today().isoformat()
-    assert _freshness_fraction(today, threshold_days=2) == pytest.approx(1.0)
-
-
-def test_freshness_fraction_none_date_is_none():
-    assert _freshness_fraction(None, threshold_days=2) is None
-
-
-def test_freshness_fraction_decays_linearly_past_threshold():
-    stale_date = (date.today() - timedelta(days=4)).isoformat()
-    # threshold=2, age=4 -> 2 days past threshold, decay window = threshold (2) -> 1.0 - 2/2 = 0.0
-    assert _freshness_fraction(stale_date, threshold_days=2) == pytest.approx(0.0)
-
-
-def test_freshness_fraction_never_goes_negative():
-    ancient_date = (date.today() - timedelta(days=365)).isoformat()
-    assert _freshness_fraction(ancient_date, threshold_days=2) == 0.0
-
-
-def test_freshness_fraction_within_threshold_is_full():
-    recent_date = (date.today() - timedelta(days=1)).isoformat()
-    assert _freshness_fraction(recent_date, threshold_days=2) == pytest.approx(1.0)
 
 
 # ------------------------------------------------------------

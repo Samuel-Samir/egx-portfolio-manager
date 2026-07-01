@@ -16,14 +16,13 @@ from __future__ import annotations
 import argparse
 import statistics
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
 load_dotenv()  # ANTHROPIC_API_KEY must be set before the Reasoning Layer is called
 
-from egxpm.collectors.collector_service import CollectorService
-from egxpm.collectors.price_collector import collect_price_candles
+from egxpm.collectors.ensure_fresh_data import ensure_fresh_prices, freshness_fraction
 from egxpm.collectors.source_health_service import SourceHealthService
 from egxpm.engine.confidence_engine import (
     FreshnessMetadata,
@@ -55,7 +54,6 @@ from egxpm.persistence.company_repository import CompanyRepository
 from egxpm.persistence.db import init_db
 from egxpm.persistence.models import (
     AllocationReport,
-    CollectionRun,
     Job,
     JobType,
     PortfolioSnapshot,
@@ -87,48 +85,6 @@ HISTORY_LOOKBACK_SCORES = 8
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _freshness_fraction(latest_date: str | None, threshold_days: float) -> float | None:
-    if latest_date is None:
-        return None
-    try:
-        latest = datetime.fromisoformat(latest_date).date()
-    except ValueError:
-        latest = datetime.fromisoformat(latest_date[:10]).date()
-    age_days = (date.today() - latest).days
-    if age_days <= threshold_days:
-        return 1.0
-    return max(0.0, 1.0 - (age_days - threshold_days) / threshold_days)
-
-
-def _ensure_fresh_prices(company_repo: CompanyRepository, operational_repo: OperationalRepository,
-                          company_id: str, stale_after_days: float) -> None:
-    """Stage 1 (ensure_fresh_data): calls CollectorService directly, NOT a
-    nested Job — no new Job row, only the CollectionRun observability
-    every Collector already produces.
-    """
-    candles = company_repo.list_price_candles(company_id)
-    latest_date = candles[-1].candle_date if candles else None
-    if latest_date is not None:
-        age_days = (date.today() - date.fromisoformat(latest_date)).days
-        if age_days <= stale_after_days:
-            return
-
-    run = CollectionRun(data_source_id="yfinance", company_id=company_id)
-    service = CollectorService()
-    try:
-        new_candles = service.collect(
-            lambda: collect_price_candles(company_id, run.collection_run_id, period="1mo")
-        )
-        company_repo.save_price_candles(new_candles)
-        run.status = RunStatus.COMPLETED
-        run.records_collected = len(new_candles)
-    except BusinessDataError as exc:
-        run.status = RunStatus.FAILED
-        run.error_message = str(exc)
-    run.completed_at = _now()
-    operational_repo.save_collection_run(run)
 
 
 def _avg_daily_volume_egp(company_repo: CompanyRepository, company_id: str) -> float | None:
@@ -204,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     succeeded: dict[str, dict] = {}
     for company in companies:
         try:
-            _ensure_fresh_prices(
+            ensure_fresh_prices(
                 company_repo, operational_repo, company.company_id,
                 freshness_thresholds.get("prices", 2),
             )
@@ -281,12 +237,12 @@ def main(argv: list[str] | None = None) -> int:
         latest_statement = company_repo.list_financial_statements(company_id, period_type="quarterly")
         latest_news = company_repo.list_news_items(company_id)
         freshness = FreshnessMetadata(
-            prices_freshness=_freshness_fraction(technical_result.computed_through_date, freshness_thresholds.get("prices", 2)),
-            technicals_freshness=_freshness_fraction(technical_result.computed_through_date, freshness_thresholds.get("technicals", 2)),
-            fundamentals_freshness=_freshness_fraction(
+            prices_freshness=freshness_fraction(technical_result.computed_through_date, freshness_thresholds.get("prices", 2)),
+            technicals_freshness=freshness_fraction(technical_result.computed_through_date, freshness_thresholds.get("technicals", 2)),
+            fundamentals_freshness=freshness_fraction(
                 max((s.period_end for s in latest_statement), default=None), freshness_thresholds.get("fundamentals", 92),
             ),
-            news_freshness=_freshness_fraction(
+            news_freshness=freshness_fraction(
                 max((n.published_at for n in latest_news), default=None), freshness_thresholds.get("news", 1),
             ),
         )
