@@ -1,0 +1,42 @@
+# EGX Portfolio Manager — cron schedule (Section 13, CLAUDE.md).
+#
+# Install with:
+#   crontab deploy/crontab
+#
+# All times below are Cairo local time (Africa/Cairo). EGX trades
+# Sunday-Thursday, closing at 14:30 Cairo time; "0-4" in the day-of-week
+# field means Sun-Thu (cron numbers weeks 0=Sun .. 6=Sat).
+#
+# --------------------------------------------------------------------
+# DST NOTE (read before deploying on a non-Cairo server):
+#
+# Egypt abolished Daylight Saving Time in 2023 and now observes a single,
+# permanent standard time (EET, UTC+2) year-round. There is no seasonal
+# clock change to account for — a cron schedule expressed in Cairo local
+# time needs no DST-transition logic, ever, as long as this policy holds.
+#
+# If the machine running this crontab is NOT itself set to the
+# Africa/Cairo timezone (e.g. a cloud VM running in UTC), do ONE of:
+#   (a) Set `TZ=Africa/Cairo` as the first line of this crontab (supported
+#       by cron on Linux/macOS) so every schedule below is interpreted in
+#       Cairo time regardless of the system's own timezone, OR
+#   (b) Convert every line below to UTC yourself: Cairo is fixed at
+#       UTC+2, so subtract 2 hours (e.g. 15:30 Cairo -> 13:30 UTC).
+# Option (a) is simpler and is what this file uses.
+# --------------------------------------------------------------------
+
+TZ=Africa/Cairo
+
+# Daily collection (Sun-Thu, after EGX close at 14:30 Cairo time)
+30 15 * * 0-4   cd /path/to/egx-portfolio-manager && .venv/bin/python -m egxpm.run_collection --type price
+30 15 * * 0-4   cd /path/to/egx-portfolio-manager && .venv/bin/python -m egxpm.run_collection --type technical_reference
+30 15 * * 0-4   cd /path/to/egx-portfolio-manager && .venv/bin/python -m egxpm.run_collection --type news
+
+# Daily Swing Job (30-min buffer after collection)
+00 16 * * 0-4   cd /path/to/egx-portfolio-manager && .venv/bin/python -m egxpm.run_swing
+
+# Weekly Fundamentals (Friday — market closed)
+00 09 * * 5     cd /path/to/egx-portfolio-manager && .venv/bin/python -m egxpm.run_collection --type fundamentals
+
+# Weekly Long-Term Job (2-hour buffer after fundamentals)
+00 11 * * 5     cd /path/to/egx-portfolio-manager && .venv/bin/python -m egxpm.run_longterm
