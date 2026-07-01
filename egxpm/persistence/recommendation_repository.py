@@ -77,21 +77,33 @@ class RecommendationRepository:
     # RecommendationSupersession (append-only)
     # ------------------------------------------------------------
 
-    def save_supersession(self, supersession: RecommendationSupersession) -> None:
+    def save_supersession(self, supersession: RecommendationSupersession, conn=None) -> None:
+        sql = """
+            INSERT INTO recommendation_supersessions
+                (supersession_id, recommendation_id, superseded_at,
+                 superseding_event_type, superseding_reference_id)
+            VALUES (?, ?, ?, ?, ?)
+        """
+        params = (
+            supersession.supersession_id, supersession.recommendation_id,
+            supersession.superseded_at, supersession.superseding_event_type,
+            supersession.superseding_reference_id,
+        )
+        if conn is not None:
+            conn.execute(sql, params)
+        else:
+            with connect(self.db_path) as c:
+                c.execute(sql, params)
+
+    def save_checkpoint_b(
+        self, recommendation: Recommendation, supersession: RecommendationSupersession | None = None
+    ) -> None:
+        """Checkpoint B (Stage 13): Recommendation + (optional) RecommendationSupersession,
+        one atomic transaction."""
         with connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO recommendation_supersessions
-                    (supersession_id, recommendation_id, superseded_at,
-                     superseding_event_type, superseding_reference_id)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    supersession.supersession_id, supersession.recommendation_id,
-                    supersession.superseded_at, supersession.superseding_event_type,
-                    supersession.superseding_reference_id,
-                ),
-            )
+            self.save_recommendation(recommendation, conn=conn)
+            if supersession is not None:
+                self.save_supersession(supersession, conn=conn)
 
     def list_supersessions(self, recommendation_id: str) -> list[RecommendationSupersession]:
         with connect(self.db_path) as conn:
