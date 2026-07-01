@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 from egxpm.collectors.collector_service import CollectorService
 from egxpm.collectors.fundamentals_collector import collect_fundamentals
@@ -176,8 +175,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--window", type=int, default=200, help="Technical Engine window (--type technical only)")
     args = parser.parse_args(argv)
 
-    if not Path(args.db_path).exists():
-        init_db(args.db_path)
+    init_db(args.db_path)  # idempotent: creates schema/seeds on first run, applies migrations after
 
     job_type_by_arg = {
         "price": JobType.PRICE,

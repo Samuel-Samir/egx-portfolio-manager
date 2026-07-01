@@ -269,6 +269,7 @@ class NewsItem(BaseModel):
     url: Optional[str] = None
     sentiment_score: Optional[float] = None
     relevance_score: Optional[float] = None
+    lexicon_version: Optional[str] = None
     data_source_id: str
     source_version: str
     fetched_at: str = Field(default_factory=_now)

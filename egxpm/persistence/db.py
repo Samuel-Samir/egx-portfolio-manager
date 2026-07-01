@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS news_items (
     url               TEXT,
     sentiment_score   REAL,
     relevance_score   REAL,
+    lexicon_version   TEXT,
     data_source_id    TEXT NOT NULL REFERENCES data_sources(data_source_id),
     source_version    TEXT NOT NULL,
     fetched_at        TEXT NOT NULL,
@@ -454,6 +455,18 @@ def connect(db_path: str | Path) -> Iterator[sqlite3.Connection]:
 
 def create_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_SQL)
+    _migrate(conn)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Additive, idempotent migrations for columns added after a table's first release.
+
+    CREATE TABLE IF NOT EXISTS in SCHEMA_SQL only applies to brand-new databases,
+    so pre-existing local databases need these applied explicitly.
+    """
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(news_items)")}
+    if "lexicon_version" not in columns:
+        conn.execute("ALTER TABLE news_items ADD COLUMN lexicon_version TEXT")
 
 
 def seed_data_sources(conn: sqlite3.Connection) -> None:

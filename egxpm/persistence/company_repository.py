@@ -355,15 +355,15 @@ class CompanyRepository:
                 """
                 INSERT INTO news_items
                     (news_id, company_id, sector_scope, headline, publisher_name,
-                     published_at, url, sentiment_score, relevance_score, data_source_id,
-                     source_version, fetched_at, collection_run_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     published_at, url, sentiment_score, relevance_score, lexicon_version,
+                     data_source_id, source_version, fetched_at, collection_run_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.news_id, item.company_id, item.sector_scope, item.headline,
                     item.publisher_name, item.published_at, item.url, item.sentiment_score,
-                    item.relevance_score, item.data_source_id, item.source_version,
-                    item.fetched_at, item.collection_run_id,
+                    item.relevance_score, item.lexicon_version, item.data_source_id,
+                    item.source_version, item.fetched_at, item.collection_run_id,
                 ),
             )
 
