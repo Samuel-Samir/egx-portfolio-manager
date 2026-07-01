@@ -5,6 +5,7 @@ Usage:
     python -m egxpm.run_collection --type technical_reference
     python -m egxpm.run_collection --type technical
     python -m egxpm.run_collection --type fundamentals
+    python -m egxpm.run_collection --type news
 
 A thin orchestrator: sequences calls to Collectors/Engine and Repositories.
 Contains zero business logic of its own. Each company is isolated — one
@@ -20,8 +21,10 @@ from datetime import datetime, timezone
 
 from egxpm.collectors.collector_service import CollectorService
 from egxpm.collectors.fundamentals_collector import collect_fundamentals
+from egxpm.collectors.news_collector import collect_news
 from egxpm.collectors.price_collector import collect_price_candles
 from egxpm.collectors.technical_reference_collector import collect_technical_reference
+from egxpm.engine.news_engine import score_news_item
 from egxpm.engine.technical_engine import ENGINE_VERSION, calculate_technical_snapshot
 from egxpm.persistence.company_repository import CompanyRepository
 from egxpm.persistence.db import init_db
@@ -32,6 +35,7 @@ from egxpm.shared.exceptions import BusinessDataError
 DEFAULT_DB_PATH = "data/egx.db"
 TRADINGVIEW_MIN_DELAY_SECONDS = 1.5
 STOCKANALYSIS_MIN_DELAY_SECONDS = 2.0
+MUBASHER_MIN_DELAY_SECONDS = 1.5
 
 
 def _now() -> str:
@@ -164,11 +168,38 @@ def _run_fundamentals(
         operational_repo.save_collection_run(run)
 
 
+def _run_news(
+    company_repo: CompanyRepository, operational_repo: OperationalRepository, job: Job
+) -> None:
+    service = CollectorService()
+    for company in company_repo.list_companies(rollout_phase="phase1"):
+        run = CollectionRun(
+            job_id=job.job_id, data_source_id="mubasher", company_id=company.company_id
+        )
+        try:
+            raw_items = service.collect(
+                lambda cid=company.company_id, rid=run.collection_run_id: collect_news(cid, rid),
+                min_delay_seconds=MUBASHER_MIN_DELAY_SECONDS,
+            )
+            scored_items = [score_news_item(item) for item in raw_items]
+            for item in scored_items:
+                company_repo.save_news_item(item)
+            run.status = RunStatus.COMPLETED
+            run.records_collected = len(scored_items)
+            job.companies_processed += 1
+        except BusinessDataError as exc:
+            run.status = RunStatus.FAILED
+            run.error_message = str(exc)
+            job.companies_failed += 1
+        run.completed_at = _now()
+        operational_repo.save_collection_run(run)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="EGX Portfolio Manager collection jobs")
     parser.add_argument(
         "--type", required=True,
-        choices=["price", "technical_reference", "technical", "fundamentals"],
+        choices=["price", "technical_reference", "technical", "fundamentals", "news"],
     )
     parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
     parser.add_argument("--period", default="5y", help="yfinance history period (--type price only)")
@@ -182,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
         "technical_reference": JobType.TECHNICAL_REFERENCE,
         "technical": JobType.TECHNICAL,
         "fundamentals": JobType.FUNDAMENTALS,
+        "news": JobType.NEWS,
     }
 
     company_repo = CompanyRepository(args.db_path)
@@ -198,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
         _run_technical(company_repo, operational_repo, job, args.window)
     elif args.type == "fundamentals":
         _run_fundamentals(company_repo, operational_repo, job)
+    elif args.type == "news":
+        _run_news(company_repo, operational_repo, job)
 
     job.status = RunStatus.COMPLETED if job.companies_failed == 0 else RunStatus.PARTIAL
     job.completed_at = _now()
