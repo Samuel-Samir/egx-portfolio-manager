@@ -1,8 +1,8 @@
 # EGX Portfolio Manager — Development Progress
 
 ## Current Status
-**Active Milestone: M4 — Scoring + Risk + Confidence**
-**Last Updated: 2026-07-01**
+**Active Milestone: M5 — First Complete Job + Minimal Dashboard**
+**Last Updated: 2026-07-02**
 
 ---
 
@@ -14,7 +14,7 @@
 | M1 — Price + Technical Engine | ✅ Done | 2026-07-01 |
 | M2 — Fundamentals + Financial Engine | ✅ Done | 2026-07-01 |
 | M3 — News + News Processing Engine | ✅ Done | 2026-07-01 |
-| M4 — Scoring + Risk + Confidence | ⏳ Not Started | — |
+| M4 — Scoring + Risk + Confidence | ✅ Done | 2026-07-02 |
 | M5 — First Complete Job + Minimal Dashboard | ⏳ Not Started | — |
 | M6 — Swing Job + Full Dashboard | ⏳ Not Started | — |
 | M7 — Portfolio Review + Copilot | ⏳ Not Started | — |
@@ -87,17 +87,35 @@
 
 ## M4 — Scoring + Risk + Confidence Engines Checklist
 
-- [ ] Scoring Engine (3-component, full breakdown JSON)
-- [ ] Sector/Market Aggregation (Stage 6a synchronization barrier)
-- [ ] Risk Engine (Stage 6b, all 4 components)
-- [ ] Confidence Engine (5 inputs, SourceHealthService with 1-hr TTL)
-- [ ] AllocationCalculator unit tests (note: already written in M0 — verify coverage is complete, don't duplicate)
-- [ ] Checkpoint A transaction (atomic: TechnicalSnapshot + Score + RiskScore + ConfidenceScore)
-- [ ] Composite scores for all Phase 1 companies in [0,100]
-- [ ] Score breakdown JSON complete
-- [ ] Stage 6a barrier verified (failing company absent from peer set)
-- [ ] Checkpoint A atomic transaction verified via simulated crash
-- [ ] **Must resolve the open config.yaml/pyyaml question before this milestone can read real scoring weights** (flagged since M1, still unresolved)
+- [x] Scoring Engine (3-component, full breakdown JSON)
+- [x] Sector/Market Aggregation (Stage 6a synchronization barrier — plus a separate Stage-6a-only SectorPeerSummary for the Risk Engine's D/E comparison, computed earlier than the dashboard-facing SectorSummary/MarketSummary, see session log)
+- [x] Risk Engine (Stage 6b, all 4 components)
+- [x] Confidence Engine (5 inputs, SourceHealthService with 1-hr TTL)
+- [x] AllocationCalculator unit tests (already written in M0 — reverified still passing, not duplicated)
+- [x] Checkpoint A transaction (atomic: TechnicalSnapshot + Score + RiskScore + ConfidenceScore)
+- [x] Composite scores for all Phase 1 companies in [0,100] (verified against real data: 42.6-68.0 across the 6 covered companies)
+- [x] Score breakdown JSON complete
+- [x] Stage 6a barrier verified (failing company absent from peer set — verified with a real InsufficientDataError)
+- [x] Checkpoint A atomic transaction verified via simulated crash (two real FK-violation crash simulations)
+- [x] Resolved the open config.yaml/pyyaml question (added pyyaml — see session log)
+
+---
+
+## M5 — First Complete Job + Minimal Dashboard Checklist
+
+- [ ] Position Sizing Engine (ATR-based stop/target/size, portfolio heat check)
+- [ ] Reasoning Layer (Claude API, Structured Outputs, prompt caching) — needs ANTHROPIC_API_KEY in .env
+- [ ] Context Aggregator
+- [ ] run_longterm.py — the full 14-stage Long-Term Job pipeline (first real Job entry point; run_collection.py's 4 --type modes were always Collection-only, not the full pipeline)
+- [ ] RecommendationSupersession (implemented; verified on second run)
+- [ ] PortfolioSnapshot scheduled capture (origin="scheduled" at end of each Long-Term run)
+- [ ] Minimal Dashboard: Home, Long-Term Rankings, Job Status, Collector Status pages
+- [ ] Long-Term Job completes for all Phase 1 companies (the 6 with data — same coverage gap applies)
+- [ ] >= 1 Recommendation with valid frozen_package and rejected_alternatives field
+- [ ] portfolio_snapshot_id on Recommendation references existing snapshot captured before Checkpoint B
+- [ ] --dry-run produces Score rows but no Recommendation rows
+- [ ] Minimal Dashboard renders without error
+- [ ] **Needs user input: real Holding data (quantities/cost basis) has never been entered — dashboard/allocation pages need this to show anything real. Ask before this milestone needs it.**
 
 ---
 
@@ -167,6 +185,24 @@
   - Same 5-company coverage gap (`ADA`, `BMM`, `CLOUD`, `ABR`, `EFGD`) held for Mubasher too — now confirmed across all 4 sources checked (yfinance, TradingView, StockAnalysis.com, Mubasher). This is very likely a hard, permanent Phase 1 data limitation for these 5 companies.
   - 97 tests passing total (73 from M0-M2 + 24 new: 21 News Engine + 3 EGX Disclosure Collector).
 - **Next:** Start M4 — Scoring + Risk + Confidence Engines. The open `config.yaml`/`pyyaml` question (unresolved since M1) needs an answer before this milestone can read real scoring weights instead of hardcoded defaults — flag it to the user again if it comes up.
+
+### Session 6 — 2026-07-02
+- Completed M4 — Scoring + Risk + Confidence Engines in full. This was the largest milestone by far — it's the first one combining outputs from all three prior Engines (Financial, Technical, News) plus a cross-company synchronization barrier and an atomic 4-table transaction. Several genuine spec gaps needed documented v1 judgment calls (below), all deliberately conservative and testable rather than guessed silently.
+  - **Resolved the config.yaml/pyyaml question** (open since M1): added `pyyaml` as a dependency. `egxpm/shared/config.py` is the one place that reads `config.yaml`; `build_configuration_snapshot()` resolves it into a `ConfigurationSnapshot` with ONE active weight profile (`longterm_weights` or `swing_weights`) per snapshot, since a `ConfigurationSnapshot` represents one resolved policy for one Job run, not both profiles at once.
+  - `egxpm/engine/scoring_engine.py`: `calculate_score()` computes financial/technical/news sub-scores (composite left `None` until Stage 6c); `assemble_composite_score()` is Stage 6c. Returns `ScoreResult` (not `Score`) for the same reason `TechnicalSnapshotResult` exists — `company_id`/`config_snapshot_id`/`job_id` are Orchestration metadata, attached afterward via `build_score()`.
+    - **Rubric point allocations are this system's own v1 judgment calls** (documented inline) — the architecture doc gives the 3-component structure and one breakdown JSON example, not exact point values. Financial: revenue/net-income/EPS growth, net margin, ROE, ROA, D/E, FCF margin, growth-trend bonus, summing to 100. Technical: trend (40), RSI zone (20), MACD crossover (15), breakout (15), unusual volume (10).
+    - **Debt/Equity scoring is schema-aware** (bank ceiling 12.0x vs industrial 2.0x) — banks are structurally far more leveraged since customer deposits count as liabilities. Verified against real data: COMI's real D/E of 6.25 scores reasonably on the bank scale instead of being punished as if it were an over-leveraged industrial company.
+    - Sector/Market aggregation for the *dashboard* (`aggregate_sector_summary`/`aggregate_market_summary`, averaging `composite_score`) is intentionally a different, later computation than the Risk Engine's `SectorPeerSummary` (Stage 6a, D/E-only) — composite doesn't exist until Stage 6c, so the dashboard aggregate can't be computed at the actual Stage 6a barrier point; only the D/E peer comparison can.
+  - `egxpm/engine/risk_engine.py`: 4 components (debt_peer, score_volatility, data_completeness, liquidity). **Missing inputs degrade to penalty=50 (conservative mid-range)** per the explicit contract wording — deliberately different from the Scoring Engine's exclude-and-renormalize/treat-as-zero policy, since excluding a risk component that would've looked bad could understate overall risk.
+    - `build_sector_peer_summary()` reads each company's D/E straight from `Score.financial_breakdown` (not a separate `FinancialMetrics` list) — matches the actual contract signature (`calculate_risk_score` only receives a `Score`).
+    - `LiquiditySummary.hypothetical_position_size_egp` is a genuine spec gap: liquidity_risk needs a position size, but Position Sizing (Stage 9) hasn't run yet at Stage 6b. Resolved by using a hypothetical worst case (e.g. `max_position_pct * portfolio_total`) rather than a number that doesn't exist yet — documented inline.
+    - Component blend weights (equal 0.25 each) and ceilings (D/E 2x peer median, score std_dev 20pts, liquidity 20% of daily volume) are documented v1 defaults — the doc names the components without specifying relative weight.
+  - `egxpm/engine/confidence_engine.py`: 5 inputs (Score + Freshness/SourceQuality/SourceHealth/HistoricalAccuracy summaries). `RiskScore` is deliberately NOT an input (Risk = investment quality, Confidence = data reliability — independent dimensions per the doc; verified with a test that inspects the function signature). Source quality tier weights (Official/Internal=1.0, Scraped=0.7, Manual=0.8) are fixed system constants straight from the doc's table; the 4 components' blend weight isn't specified there either, so equal weighting again.
+  - `egxpm/collectors/source_health_service.py`: 1-hour TTL cache over a rolling 30-day `CollectionRun` success rate. No new table, per the doc's "derived on demand" rule. Returns `None` (not an optimistic 1.0) when there's no run history at all, so the Confidence Engine's neutral-0.5 default applies consistently.
+  - **Checkpoint A**: `CompanyRepository.save_checkpoint_a()` — turned out to need almost no new code, since all four `save_*` methods already accepted an optional external `conn` parameter from M0/M1's design. Verified atomicity with two real crash simulations (FK violations on `RiskScore` and, separately, on the last-written `ConfidenceScore`) — confirmed none of the four rows survive either way, not just the row that actually failed.
+  - **Deliberately did NOT build `run_longterm.py` this milestone** — it's explicitly an M5 deliverable. Instead wrote an integration test (`tests/test_m4_pipeline_integration.py`) that runs the real Stage 3-7 + Checkpoint A pipeline against real M1-M3 data, verifying both remaining validation criteria: composite scores for all 6 covered companies land in [0,100] with real differentiation (COMI=42.6, TMGH=41.7, PALM=48.0, SWDY=36.4, ABUK=68.0, EFIH=58.4), and the Stage 6a barrier correctly excludes a company that failed Stage 6 (a real `InsufficientDataError`) from its sector's peer D/E set.
+  - 168 tests passing total (97 from M0-M3 + 71 new: 3 config + 23 Scoring Engine + 21 Risk Engine + 13 Confidence Engine + 6 SourceHealthService + 3 Checkpoint A + 2 M4 integration).
+- **Next:** Start M5 — First Complete Job + Minimal Dashboard. Will need `ANTHROPIC_API_KEY` set in `.env` for the Reasoning Layer, and will need to ask the user for real Holding data (quantities/cost basis) before the dashboard can show real allocation — both flagged as open items since earlier milestones.
 
 ---
 
