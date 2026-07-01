@@ -1,0 +1,81 @@
+# Database
+db_path: "data/egx.db"
+
+# Portfolio Target Allocation
+allocation_targets:
+  bmm_index: 0.25        # BMM equity index fund
+  long_term_stocks: 0.40  # individual long-term picks
+  swing_trading: 0.20     # swing capital
+  cloud_cash: 0.10        # liquidity / cash management
+  gold: 0.05              # diversification only
+
+# Per-stock and sector constraints
+max_per_stock_pct: 0.15
+max_per_sector_pct: 0.35
+
+# Scoring weights (must sum to 1.0)
+longterm_weights:
+  financial: 0.45
+  technical: 0.25
+  news: 0.20
+  risk: 0.10
+
+swing_weights:
+  financial: 0.20
+  technical: 0.50
+  news: 0.20
+  risk: 0.10
+
+# Scoring null-handling policy
+null_handling_policy: "exclude_and_renormalize"  # or "treat_as_zero"
+
+# Swing candidate filter
+swing_min_score_threshold: 55
+longterm_min_score_threshold: 60
+
+# Risk settings
+risk_per_trade_pct: 0.01    # 1% of portfolio per trade
+max_position_pct: 0.15      # max 15% in one position
+max_portfolio_heat_pct: 0.06 # max 6% total open risk
+atr_multiplier: 1.5
+risk_reward_ratio: 2.0
+unusual_volume_threshold: 1.5
+
+# Recommendation validity
+swing_validity_days: 1
+longterm_validity_until_next_run: true
+
+# Data freshness thresholds (days)
+freshness_thresholds:
+  prices: 2
+  technicals: 2
+  fundamentals: 92  # 1 quarter
+  news: 1
+
+# LLM settings
+swing_model: "claude-haiku-4-5"
+longterm_model: "claude-sonnet-4-6"
+copilot_model: "claude-sonnet-4-6"
+max_tokens: 1000
+
+# Copilot limits
+copilot_max_tool_rounds: 5
+copilot_max_tool_calls: 15
+session_ttl_hours: 24
+conversation_retention_days: 30
+plan_expiry_hours: 24
+
+# Dashboard
+dashboard_cache_ttl_seconds: 300
+
+# Collector rate limiting
+stockanalysis_min_delay_seconds: 2.0
+mubasher_min_delay_seconds: 1.5
+collector_max_retries: 3
+
+# Source health
+source_health_window_days: 30
+source_health_cache_ttl_seconds: 3600
+
+# Portfolio review
+review_top_n_candidates: 10
