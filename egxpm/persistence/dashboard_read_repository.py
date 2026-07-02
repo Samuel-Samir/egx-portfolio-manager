@@ -63,3 +63,51 @@ class DashboardReadRepository:
             reverse=True,
         )
         return rows
+
+    def get_holdings_detail(self) -> list[dict]:
+        """Each Holding joined with its Company, latest Score, latest
+        ConfidenceScore, and latest PriceCandle (current price)."""
+        rows = []
+        for holding in self.company_repo.list_holdings():
+            company = self.company_repo.get_company(holding.company_id)
+            score = self.company_repo.get_latest_score(holding.company_id)
+            confidence = (
+                self.company_repo.get_confidence_score_by_score_id(score.score_id)
+                if score is not None else None
+            )
+            candles = self.company_repo.list_price_candles(holding.company_id)
+            latest_price = candles[-1].close if candles else None
+            unrealized_pnl = (
+                holding.quantity * (latest_price - holding.average_cost)
+                if latest_price is not None else None
+            )
+            rows.append({
+                "holding": holding, "company": company, "score": score, "confidence": confidence,
+                "latest_price": latest_price, "unrealized_pnl": unrealized_pnl,
+            })
+        return rows
+
+    def get_watchlist_detail(self) -> list[dict]:
+        """WATCHLIST + CANDIDATE companies with their latest Score and
+        latest TechnicalSnapshot."""
+        rows = []
+        for state in (WatchlistState.WATCHLIST, WatchlistState.CANDIDATE):
+            for company_id in self.company_repo.list_companies_in_state(state):
+                company = self.company_repo.get_company(company_id)
+                rows.append({
+                    "company": company, "state": state,
+                    "score": self.company_repo.get_latest_score(company_id),
+                    "technical_snapshot": self.company_repo.get_latest_technical_snapshot(company_id),
+                })
+        return rows
+
+    def get_company_analysis(self, company_id: str) -> dict:
+        """Single-company deep dive: Score history, FinancialStatement
+        history, TechnicalSnapshot history, and recent news."""
+        return {
+            "company": self.company_repo.get_company(company_id),
+            "score_history": self.company_repo.list_scores(company_id),
+            "financial_statements": self.company_repo.list_financial_statements(company_id),
+            "technical_snapshots": self.company_repo.list_technical_snapshots(company_id),
+            "news": self.company_repo.list_news_items(company_id),
+        }

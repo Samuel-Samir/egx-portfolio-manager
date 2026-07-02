@@ -202,3 +202,33 @@ class OperationalRepository:
         d["risk_settings"] = _util.loads(d["risk_settings"], {})
         d["allocation_targets"] = _util.loads(d["allocation_targets"], {})
         return ConfigurationSnapshot(**d)
+
+    # ------------------------------------------------------------
+    # Raw Database Explorer (read-only, any table, paginated)
+    # ------------------------------------------------------------
+
+    def list_table_names(self) -> list[str]:
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            ).fetchall()
+            return [r["name"] for r in rows]
+
+    def query_table(self, table_name: str, limit: int = 100, offset: int = 0) -> list[dict]:
+        """Read-only, paginated dump of any table. table_name is validated
+        against sqlite_master first — SQLite can't parameterize identifiers,
+        so this is a whitelist check, not string interpolation of trusted input.
+        """
+        if table_name not in self.list_table_names():
+            raise ValueError(f"unknown table: {table_name!r}")
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                f'SELECT * FROM "{table_name}" LIMIT ? OFFSET ?', (limit, offset)
+            ).fetchall()
+            return [_util.row_to_dict(r) for r in rows]
+
+    def count_table_rows(self, table_name: str) -> int:
+        if table_name not in self.list_table_names():
+            raise ValueError(f"unknown table: {table_name!r}")
+        with connect(self.db_path) as conn:
+            return conn.execute(f'SELECT COUNT(*) c FROM "{table_name}"').fetchone()["c"]
