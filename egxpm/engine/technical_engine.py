@@ -1,10 +1,11 @@
 """Technical Engine — Stage 4 of the canonical pipeline.
 
 Pure function: accepts PriceCandle domain objects, returns a
-TechnicalSnapshotResult (indicators + derived signals). No I/O, no SQL,
-no awareness of Persistence. Orchestration is responsible for merging the
-result with company_id/job_id/engine_version and saving it through
-CompanyRepository.save_technical_snapshot().
+TechnicalSnapshotResult (with .indicators and .signals, the same split as
+the persisted TechnicalSnapshot.indicators / TechnicalSnapshot.signals).
+No I/O, no SQL, no awareness of Persistence. Orchestration is responsible
+for merging the result with company_id/job_id/engine_version and saving it
+through CompanyRepository.save_technical_snapshot().
 """
 
 from __future__ import annotations
