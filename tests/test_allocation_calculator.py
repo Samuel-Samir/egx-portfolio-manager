@@ -2,6 +2,7 @@ import pytest
 
 from egxpm.persistence.models import ConfigurationSnapshot, Holding, HoldingCategory
 from egxpm.shared.allocation_calculator import calculate
+from egxpm.shared.exceptions import InsufficientDataError
 
 
 def _holding(company_id, category, quantity, price_hint=1.0):
@@ -31,7 +32,7 @@ def test_calculate_basic_allocation():
 def test_calculate_raises_on_missing_price():
     holdings = [_holding("PALM", HoldingCategory.LONG_TERM_STOCKS, 100)]
     targets = ConfigurationSnapshot(allocation_targets={"long_term_stocks": 0.4})
-    with pytest.raises(ValueError):
+    with pytest.raises(InsufficientDataError):
         calculate(holdings, prices={}, cash=0.0, targets=targets)
 
 

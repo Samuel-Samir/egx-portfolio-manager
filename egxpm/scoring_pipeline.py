@@ -47,6 +47,7 @@ from egxpm.persistence.models import (
 from egxpm.persistence.operational_repository import OperationalRepository
 from egxpm.persistence.recommendation_repository import RecommendationRepository
 from egxpm.shared.allocation_calculator import calculate as calculate_allocation
+from egxpm.shared.exceptions import InsufficientDataError
 
 LIQUIDITY_LOOKBACK_DAYS = 20
 HISTORY_LOOKBACK_SCORES = 8
@@ -99,12 +100,29 @@ def build_peer_summaries(succeeded: dict[str, dict]) -> dict[str, SectorPeerSumm
 def compute_allocation(
     company_repo: CompanyRepository, weights: ConfigurationSnapshot, prices: dict[str, float], cash: float = 0.0,
 ) -> AllocationReport:
-    """Stage 8: current portfolio allocation. No real Holding data means an
-    empty/zero AllocationReport — a valid, honest state, not a bug."""
+    """Stage 8: current portfolio allocation.
+
+    `prices` (this run's freshly computed Technical Engine results, keyed
+    by company_id) is supplemented with each held company's latest known
+    price as a fallback before calling AllocationCalculator — a holding
+    whose Technical Engine computation failed THIS run (e.g. a transient
+    InsufficientDataError elsewhere in the pipeline) still has a real, if
+    slightly stale, price on record and must not silently drop out of the
+    portfolio's total_value. Only a holding with no price history at all
+    still leaves AllocationCalculator.calculate() missing a price for it —
+    a genuine data gap, surfaced as an empty/zero AllocationReport (not
+    silently dropping that holding from the total) since no real Holding
+    data exists in production yet and this path has never been exercised
+    against real data.
+    """
     holdings = company_repo.list_holdings()
+    effective_prices = dict(prices)
+    missing = [h.company_id for h in holdings if h.company_id not in effective_prices]
+    if missing:
+        effective_prices.update(company_repo.get_latest_prices(missing))
     try:
-        return calculate_allocation(holdings, prices, cash, weights)
-    except ValueError:
+        return calculate_allocation(holdings, effective_prices, cash, weights)
+    except InsufficientDataError:
         return AllocationReport(total_value=cash, cash=cash)
 
 

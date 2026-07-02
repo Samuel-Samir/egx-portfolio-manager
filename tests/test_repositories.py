@@ -207,6 +207,22 @@ def test_list_price_candles_dedupes_to_latest_row_per_date(db_path):
     assert fetched[0].adjusted_for_corporate_action is True
 
 
+def test_get_latest_prices_skips_companies_with_no_history(db_path):
+    repo = CompanyRepository(db_path)
+    repo.save_price_candles([
+        PriceCandle(
+            company_id=COMPANY_ID, candle_date="2026-06-01", open=10, high=11, low=9, close=10.5,
+            volume=1000, data_source_id="yfinance", source_version="v1", collection_run_id="run-1",
+        ),
+        PriceCandle(
+            company_id=COMPANY_ID, candle_date="2026-06-02", open=10.5, high=12, low=10, close=11.5,
+            volume=1500, data_source_id="yfinance", source_version="v1", collection_run_id="run-1",
+        ),
+    ])
+    prices = repo.get_latest_prices([COMPANY_ID, "NO-HISTORY-EVER"])
+    assert prices == {COMPANY_ID: 11.5}
+
+
 def test_corporate_action_round_trip(db_path):
     repo = CompanyRepository(db_path)
     action = CorporateAction(

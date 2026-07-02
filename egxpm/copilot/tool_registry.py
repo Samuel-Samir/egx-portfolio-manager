@@ -201,12 +201,7 @@ class ToolRegistry:
             return ToolResult(tool_name=tool_name, success=False, error=str(exc))
 
     def _current_prices(self, holdings: list[Holding]) -> dict[str, float]:
-        prices = {}
-        for holding in holdings:
-            candles = self.company_repo.list_price_candles(holding.company_id)
-            if candles:
-                prices[holding.company_id] = candles[-1].close
-        return prices
+        return self.company_repo.get_latest_prices([h.company_id for h in holdings])
 
     # ------------------------------------------------------------
     # Read tier

@@ -46,6 +46,14 @@ class CollectorService:
                 propagate unchanged (already structural/explicit); any other
                 exception is classified as transient (retried) or structural
                 (raised immediately, wrapped in BusinessDataError).
+            ValueError, AssertionError: never caught here — these are
+                Programmer Errors per the Error Handling Rules and must
+                surface loudly, not be retried or reclassified as a
+                business/data failure. Without this exclusion, a genuine
+                bug inside a Collector (a bad-type ValueError, a violated
+                assertion) would be silently retried 3x and swallowed into
+                a per-company-isolated BusinessDataError like any ordinary
+                scraping failure, hiding the bug.
         """
         if min_delay_seconds > 0:
             time.sleep(min_delay_seconds)
@@ -55,6 +63,8 @@ class CollectorService:
             try:
                 return fetch_fn()
             except BusinessDataError:
+                raise
+            except (ValueError, AssertionError):
                 raise
             except Exception as exc:
                 if not _is_transient(exc):

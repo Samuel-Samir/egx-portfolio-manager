@@ -7,6 +7,7 @@ duplication anywhere else in the codebase.
 from __future__ import annotations
 
 from egxpm.persistence.models import AllocationReport, ConfigurationSnapshot, Holding
+from egxpm.shared.exceptions import InsufficientDataError
 
 
 def calculate(
@@ -18,14 +19,18 @@ def calculate(
     """Compute current allocation, deviation from targets, and constraint violations.
 
     Raises:
-        ValueError: a holding references a company_id missing from `prices`.
+        InsufficientDataError: a holding references a company_id missing
+            from `prices` — a real data-completeness gap (no price ever
+            recorded for a company the caller holds), not a caller
+            precedence/type mistake, so this is a BusinessDataError
+            subclass rather than a bare ValueError (Error Handling Rules).
     """
     stock_values: dict[str, float] = {}
     category_values: dict[str, float] = {}
 
     for holding in holdings:
         if holding.company_id not in prices:
-            raise ValueError(f"missing price for company_id={holding.company_id!r}")
+            raise InsufficientDataError(f"missing price for company_id={holding.company_id!r}")
         value = holding.quantity * prices[holding.company_id]
         stock_values[holding.company_id] = stock_values.get(holding.company_id, 0.0) + value
         category_values[holding.category.value] = (

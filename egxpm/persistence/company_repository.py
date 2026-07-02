@@ -342,6 +342,20 @@ class CompanyRepository:
                 for r in rows
             ]
 
+    def get_latest_prices(self, company_ids: list[str]) -> dict[str, float]:
+        """Each company_id's most recent close, skipping any with no price
+        history at all. The one canonical "current price" lookup — used
+        wherever a caller needs a price for a Holding regardless of
+        whether that company's Technical Engine computation succeeded in
+        the current Job run (its last known price is still a real price,
+        just not necessarily today's)."""
+        prices: dict[str, float] = {}
+        for company_id in company_ids:
+            candles = self.list_price_candles(company_id)
+            if candles and candles[-1].close is not None:
+                prices[company_id] = candles[-1].close
+        return prices
+
     # ------------------------------------------------------------
     # CorporateAction (append-only, manual entry)
     # ------------------------------------------------------------

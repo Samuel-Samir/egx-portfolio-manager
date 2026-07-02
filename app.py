@@ -53,11 +53,7 @@ def load_allocation():
     dashboard_repo = DashboardReadRepository(DB_PATH)
     company_repo = CompanyRepository(DB_PATH)
     holdings = company_repo.list_holdings()
-    prices = {}
-    for holding in holdings:
-        candles = company_repo.list_price_candles(holding.company_id)
-        if candles:
-            prices[holding.company_id] = candles[-1].close
+    prices = company_repo.get_latest_prices([h.company_id for h in holdings])
     fallback_config = load_configuration_snapshot()
     return dashboard_repo.get_current_allocation(prices=prices, cash=0.0, fallback_config=fallback_config)
 
