@@ -27,7 +27,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _apply_action(holdings: list[Holding], action: ProposedAction) -> list[Holding]:
+def apply_action(holdings: list[Holding], action: ProposedAction) -> list[Holding]:
     """Applies one ProposedAction to a holdings list, returning a new list
     (never mutates the input). Raises InvalidActionError for an impossible
     action (selling/trimming more than held, or opening a new BUY/ADD
@@ -89,7 +89,7 @@ def simulate(
         InvalidActionError: selling/trimming more than held, or opening a
             new position with no category.
     """
-    hypothetical_holdings = _apply_action(current_holdings, proposed_action)
+    hypothetical_holdings = apply_action(current_holdings, proposed_action)
     hypothetical_prices = dict(prices)
     hypothetical_prices.setdefault(proposed_action.company_id, proposed_action.price)
     return calculate_allocation_arithmetic(hypothetical_holdings, hypothetical_prices, cash, config)
