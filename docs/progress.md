@@ -1,8 +1,8 @@
 # EGX Portfolio Manager — Development Progress
 
 ## Current Status
-**Active Milestone: M8 — Hardening**
-**Last Updated: 2026-07-02**
+**Active Milestone: M9 — Specification Freeze**
+**Last Updated: 2026-07-03**
 
 ---
 
@@ -18,7 +18,7 @@
 | M5 — First Complete Job + Minimal Dashboard | ✅ Done | 2026-07-02 |
 | M6 — Swing Job + Full Dashboard | ✅ Done | 2026-07-02 |
 | M7 — Portfolio Review + Copilot | ✅ Done | 2026-07-02 |
-| M8 — Hardening | ⏳ Not Started | — |
+| M8 — Hardening | ✅ Done | 2026-07-03 |
 | M9 — Specification Freeze | ⏳ Not Started | — |
 
 ---
@@ -142,6 +142,21 @@
 - [x] Scripted acceptance test: compare 2 companies -> simulate -> propose 2 plans -> confirm one (other stays intact) -> confirm wrong plan_id -> ToolResult.error
 - [x] session.pending_plans has 2 entries with distinct plan_ids after two propose calls
 - [x] Every state-changing Tool action follows Plan -> Review -> Approve -> Execute -> Audit (INVARIANT, never skip)
+
+---
+
+## M8 — Hardening + Consolidation Checklist
+
+- [x] Section 8 schema validation with real data (company_sector_history, recommendation_supersessions, watchlist_history transitions)
+- [x] Corporate Actions manual entry CLI/tool
+- [x] Recommendation quality analytics
+- [x] Error handling consolidation
+- [x] Document consolidation — cross-references, terminology, pipeline diagram
+- [x] All three Section 8 amendments validated with real operational data
+- [x] Corporate action correctly invalidates and recomputes affected TechnicalSnapshots
+- [x] Recommendation performance analytics verified against manually computed reference values
+- [x] Zero open TODO/required-follow-up flags in document
+- [x] Terminology audit complete
 
 ---
 
@@ -277,6 +292,17 @@
   - Scripted acceptance test (`tests/test_tool_registry.py::test_full_acceptance_scenario`) covers the exact M7 validation criterion: compare 2 companies -> simulate -> propose 2 plans (distinct `plan_id`s) -> confirm one (the other stays in `pending_plans`) -> confirm a nonexistent `plan_id` -> `ToolResult.error`.
   - 274 tests passing total (241 from M0-M6 + 33 new: 11 Portfolio Engine + 11 Tool Registry + 8 Copilot session + 2 run_review + 1 Copilot dashboard page, with the old "14 pages registered" test replaced by a "15 pages registered" test).
 - **Next:** Start M8 — Hardening. No specific scope has been read from CLAUDE.md yet for M8/M9 beyond their milestone-table names ("Hardening" / "Specification Freeze") — read the architecture doc's M8/M9 sections at the start of that session before assuming scope.
+
+### Session 10 — 2026-07-03
+- Completed M8 — Hardening + Consolidation in full. Read Section 17.1 (M8/M9 deliverables + validation criteria) and Appendix A.1 (terminology audit reference) directly from the architecture docx, since CLAUDE.md's milestone table only names M8/M9 without detail.
+  - **Fixed a latent price_candles duplicate-date bug before touching corporate actions**: `CompanyRepository.list_price_candles` returned every physical row with no dedup by (company_id, candle_date, timeframe), even though price_candles is append-only by design (corrections are new rows, never UPDATEs). A corporate-action price adjustment (needed this milestone) or `ensure_fresh_prices`' period="1mo" refresh overlapping already-stored history would have silently handed every downstream consumer duplicate dates. Fixed with the same "latest row wins" pattern already used for `get_latest_score` — a correlated subquery picking the max (fetched_at, rowid) per date. No real duplicates existed yet in data/egx.db (all successful yfinance runs so far are from the single M1 bulk fetch), so this was a latent-bug fix, not a data repair.
+  - `egxpm/collectors/corporate_actions_collector.py` + `egxpm/record_corporate_action.py`: manual-entry CLI. Records the CorporateAction; for price-adjusting types ("split"/"bonus_issue", requiring `details["ratio"]`), inserts new (never UPDATEd) PriceCandle rows for every date before the action, scaled by ratio, then recomputes and saves a fresh TechnicalSnapshot over the adjusted series. Every action type also supersedes any currently active Recommendation via `RecommendationSupersession` (`superseding_event_type="corporate_action"`, Section 10.3) — implemented for the first time; only `new_score_computed` existed before. Also noticed and fixed a related gap while here: `run_review.py` never created a `Job` row despite `JobType.REVIEW` already existing in the enum since M0 — fixed for observability consistency with every other Job.
+  - **Section 8 amendments validated against real operational data**: ran a second real Long-Term Job against `data/egx.db` (not a scratch copy) to produce the first genuine `recommendation_supersessions` row in the production database (ABUK HOLD → BUY). `tests/test_section8_amendments_live.py` reads the real database directly and asserts the actual invariants each amendment guarantees. Corporate-action price adjustment and company-sector/watchlist amendment mechanisms were validated via dedicated tests rather than fabricated in production data — no real split/sector-change/archival has ever happened for any Phase 1 company, and inventing one in `data/egx.db` would mean inventing business data no real event justifies.
+  - `egxpm/shared/recommendation_analytics.py`: extracted `summarize_performance()` (target-hit rate, stop-hit rate, average return over FINAL outcomes only) out of `app.py`'s Recommendation Performance page, where the arithmetic previously lived inline — same category as `AllocationCalculator` (pure, importable, one canonical implementation). Hand-computed test fixture verifies the exact rates/average against manually worked-out reference values, per M8's validation criterion.
+  - **Error handling consolidation found 3 real bugs**: (1) `CollectorService.collect()`'s bare `except Exception` would have silently retried-then-wrapped a genuine `ValueError`/`AssertionError` from inside a Collector into a `BusinessDataError`, hiding a real programmer bug behind per-company isolation — fixed by re-raising `ValueError`/`AssertionError` first; added `tests/test_collector_service.py` (8 tests — this module had zero dedicated tests despite being core shared infrastructure since M1). (2) `AllocationCalculator.calculate()`'s bare `ValueError` for a held company missing from `prices`, silently caught by `scoring_pipeline.compute_allocation()` into a fabricated empty `AllocationReport` — except `prices` there was only ever built from companies that succeeded Stage 3-6 *this run*, so a held company whose Technical Engine merely failed this run (transient) would silently vanish from `total_value` with no error anywhere. Currently unreachable (no real Holding data exists yet) but a real landmine. Fixed: the exception is now `InsufficientDataError` (a real data-completeness gap per the taxonomy, not a caller-precondition `ValueError`), and a new `CompanyRepository.get_latest_prices()` — the one canonical "current price" lookup — supplies each holding's last known price as a fallback before that exception can even fire. (3) That same "latest known price per holding" loop was independently duplicated three times (`app.py`, `ToolRegistry._current_prices`, and the gap in `compute_allocation`) — consolidated onto `get_latest_prices()`.
+  - **Terminology audit against Appendix A.1**: found one genuine drift (`technical_engine.py`'s docstring said "indicators + derived signals" instead of naming `TechnicalSnapshot.indicators`/`TechnicalSnapshot.signals` explicitly — fixed). Everything else checked either had zero matches or was CLAUDE.md's own literal wording (CLAUDE.md quotes "allocation arithmetic" verbatim in its own AllocationCalculator contract) or a genuinely different concept (`technical_reference_collector.py`'s "raw indicators" refers to the real `raw_indicators` column on `technical_reference_snapshots`, a different table). Deliberately did NOT rename `WatchlistState`/`watchlist_history` to "MonitoringIntent" per the appendix's forbidden-alias entry for that concept — CLAUDE.md (the higher-priority, explicitly overriding document) names this concept `WatchlistState` throughout its own "Watchlist States" section; the full doc's Section 11 uses "Monitoring Intent" as the abstract dimension's name in prose while still persisting it through `watchlist_history` — a documentation-terminology distinction, not an instruction to rename the schema this codebase is built around.
+  - 298 tests passing total (274 from M0-M7 + 24 new: 1 dedup regression + 4 corporate-actions-collector + 3 record-corporate-action + 3 Section 8 live validation + 4 recommendation analytics + 8 CollectorService + 1 get_latest_prices).
+- **Next:** Start M9 — Specification Freeze (per Section 17.1: remove pending-amendment/TODO flags, verify Section 6 pipeline diagram matches implementation, a final cross-reference/terminology pass, tag `architecture-v1.0` and `v1.0`). This is the last milestone — after it, the system is v1.0 per the doc's own definition, though real Holding data still needs to be entered by the user before the dashboard/Portfolio Review reflect actual positions (flagged since M5, still open).
 
 ---
 
