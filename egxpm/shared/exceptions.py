@@ -29,6 +29,10 @@ class PortfolioHeatExceededError(BusinessDataError):
     """Raised by the Position Sizing Engine when the portfolio heat limit is exceeded."""
 
 
+class InvalidActionError(BusinessDataError):
+    """Raised by the Portfolio Engine's simulate() for an impossible action (e.g. selling more than held)."""
+
+
 class ScraperSchemaChangedError(BusinessDataError):
     """Raised by a scraping Collector when expected fields are missing from a response."""
 
