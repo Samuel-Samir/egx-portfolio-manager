@@ -180,6 +180,33 @@ def test_price_candles_round_trip(db_path):
     assert fetched[0].close == 10.5
 
 
+def test_list_price_candles_dedupes_to_latest_row_per_date(db_path):
+    """price_candles is append-only — a second row for a date that already
+    has one (a corporate-action price adjustment, or a stale-refresh
+    re-fetch of an overlapping date range) must not appear as a duplicate
+    date to callers. The most recently fetched row wins."""
+    repo = CompanyRepository(db_path)
+    original = PriceCandle(
+        company_id=COMPANY_ID, candle_date="2026-06-01", open=10, high=11,
+        low=9, close=10.5, volume=1000, data_source_id="yfinance",
+        source_version="v1", collection_run_id="run-1", fetched_at="2026-06-01T00:00:00+00:00",
+    )
+    repo.save_price_candles([original])
+
+    corrected = PriceCandle(
+        company_id=COMPANY_ID, candle_date="2026-06-01", open=5, high=5.5,
+        low=4.5, close=5.25, volume=2000, adjusted_for_corporate_action=True,
+        data_source_id="manual", source_version="v1", collection_run_id="run-2",
+        fetched_at="2026-06-02T00:00:00+00:00",
+    )
+    repo.save_price_candles([corrected])
+
+    fetched = repo.list_price_candles(COMPANY_ID)
+    assert len(fetched) == 1
+    assert fetched[0].close == 5.25
+    assert fetched[0].adjusted_for_corporate_action is True
+
+
 def test_corporate_action_round_trip(db_path):
     repo = CompanyRepository(db_path)
     action = CorporateAction(

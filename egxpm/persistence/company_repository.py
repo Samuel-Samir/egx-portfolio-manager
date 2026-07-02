@@ -299,7 +299,34 @@ class CompanyRepository:
         end_date: Optional[str] = None,
         timeframe: Timeframe = Timeframe.DAILY,
     ) -> list[PriceCandle]:
-        query = "SELECT * FROM price_candles WHERE company_id = ? AND timeframe = ?"
+        """Returns one row per (company_id, candle_date, timeframe) — the
+        most recently fetched (fetched_at, then rowid tiebreak), matching
+        the "latest row wins" read pattern already used for
+        get_latest_score/get_latest_technical_snapshot/etc. elsewhere in
+        this repository.
+
+        price_candles is append-only (corrections are new rows, never
+        UPDATEs — Business Rule #7), so more than one physical row can
+        share a (company_id, candle_date): a corporate-action price
+        adjustment inserts a corrected row for a date that already has
+        one, and a stale-data refresh (ensure_fresh_prices) can re-fetch a
+        date range that overlaps already-stored history. Without this
+        dedup, both cases would silently return duplicate dates to every
+        caller (Technical/Financial Engines assume exactly one candle per
+        date) — the same class of bug the M0 `rowid` tiebreak fix already
+        addressed for single-row "latest" reads, generalized here to a
+        per-date latest.
+        """
+        query = """
+            SELECT * FROM price_candles p
+            WHERE company_id = ? AND timeframe = ?
+              AND rowid = (
+                  SELECT p2.rowid FROM price_candles p2
+                  WHERE p2.company_id = p.company_id AND p2.candle_date = p.candle_date
+                    AND p2.timeframe = p.timeframe
+                  ORDER BY p2.fetched_at DESC, p2.rowid DESC LIMIT 1
+              )
+        """
         params: list[str] = [company_id, timeframe.value]
         if start_date is not None:
             query += " AND candle_date >= ?"
