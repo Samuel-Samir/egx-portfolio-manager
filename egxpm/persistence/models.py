@@ -129,6 +129,7 @@ class JobType(str, Enum):
     SWING = "swing"
     LONGTERM = "longterm"
     REVIEW = "review"
+    CORPORATE_ACTION = "corporate_action"
 
 
 class Agreement(str, Enum):

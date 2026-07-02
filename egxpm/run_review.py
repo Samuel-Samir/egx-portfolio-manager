@@ -21,12 +21,19 @@ from __future__ import annotations
 import argparse
 import sys
 
+from datetime import datetime, timezone
+
 from egxpm.copilot.models import AnalysisSessionState
 from egxpm.copilot.tool_registry import ToolRegistry
 from egxpm.persistence.db import init_db
-from egxpm.persistence.models import AnalysisSession, Conversation
+from egxpm.persistence.models import AnalysisSession, Conversation, Job, JobType, RunStatus
+from egxpm.persistence.operational_repository import OperationalRepository
 
 DEFAULT_DB_PATH = "data/egx.db"
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,12 +45,26 @@ def main(argv: list[str] | None = None) -> int:
 
     init_db(args.db_path)
     registry = ToolRegistry(args.db_path, config_path=args.config_path)
+    operational_repo = OperationalRepository(args.db_path)
     session_state = AnalysisSessionState()
+
+    job = Job(job_type=JobType.REVIEW)
+    operational_repo.save_job(job)
 
     result = registry.execute("propose_rebalance", {"new_capital": args.capital}, session_state)
     if not result.success:
+        job.status = RunStatus.FAILED
+        job.companies_failed = 1
+        job.error_summary = result.error
+        job.completed_at = _now()
+        operational_repo.save_job(job)
         print(f"Portfolio Review Job failed: {result.error}")
         return 1
+
+    job.status = RunStatus.COMPLETED
+    job.companies_processed = 1
+    job.completed_at = _now()
+    operational_repo.save_job(job)
 
     plan = result.data
     conversation = Conversation()

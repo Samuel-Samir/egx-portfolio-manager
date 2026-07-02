@@ -56,9 +56,19 @@ def test_run_review_produces_rebalance_plan_and_saves_session(db_path, capsys):
         sessions = conn.execute("SELECT * FROM analysis_sessions").fetchall()
     assert len(sessions) == 1
 
+    with connect(db_path) as conn:
+        jobs = conn.execute("SELECT * FROM jobs WHERE job_type = 'review'").fetchall()
+    assert len(jobs) == 1
+    assert jobs[0]["status"] == "completed"
+
 
 def test_run_review_no_candidates_returns_nonzero(db_path, capsys):
     exit_code = main(["--capital", "1000", "--db-path", db_path])
     assert exit_code == 1
     out = capsys.readouterr().out
     assert "failed" in out.lower()
+
+    with connect(db_path) as conn:
+        jobs = conn.execute("SELECT * FROM jobs WHERE job_type = 'review'").fetchall()
+    assert len(jobs) == 1
+    assert jobs[0]["status"] == "failed"
