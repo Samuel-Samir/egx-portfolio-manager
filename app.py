@@ -35,6 +35,7 @@ from egxpm.persistence.portfolio_repository import PortfolioRepository
 from egxpm.persistence.recommendation_repository import RecommendationRepository
 from egxpm.shared.config import load_configuration_snapshot
 from egxpm.shared.exceptions import BusinessDataError
+from egxpm.shared.recommendation_analytics import summarize_performance
 
 DB_PATH = "data/egx.db"
 CACHE_TTL_SECONDS = 300
@@ -312,17 +313,14 @@ def render_recommendation_performance():
         st.write("No Outcomes recorded yet — Performance analytics will populate once trades are executed and outcomes tracked.")
         return
 
-    final_outcomes = [o for o in all_outcomes if o.is_final]
-    target_hits = sum(1 for o in final_outcomes if o.target_hit)
-    stop_hits = sum(1 for o in final_outcomes if o.stop_hit)
-    returns = [o.actual_return for o in final_outcomes if o.actual_return is not None]
+    summary = summarize_performance(all_outcomes)
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Final Outcomes", len(final_outcomes))
-    col2.metric("Target Hit Rate", f"{target_hits / len(final_outcomes) * 100:.1f}%" if final_outcomes else "n/a")
-    col3.metric("Stop Hit Rate", f"{stop_hits / len(final_outcomes) * 100:.1f}%" if final_outcomes else "n/a")
-    if returns:
-        st.metric("Average Return", f"{sum(returns) / len(returns) * 100:.2f}%")
+    col1.metric("Final Outcomes", summary.final_outcome_count)
+    col2.metric("Target Hit Rate", f"{summary.target_hit_rate * 100:.1f}%" if summary.target_hit_rate is not None else "n/a")
+    col3.metric("Stop Hit Rate", f"{summary.stop_hit_rate * 100:.1f}%" if summary.stop_hit_rate is not None else "n/a")
+    if summary.average_return is not None:
+        st.metric("Average Return", f"{summary.average_return * 100:.2f}%")
 
     st.subheader("User Feedback")
     if not all_feedback:

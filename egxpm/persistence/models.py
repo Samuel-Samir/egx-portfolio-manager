@@ -533,3 +533,11 @@ class ProposedAction(BaseModel):
     quantity: float
     price: float
     category: Optional[HoldingCategory] = None
+
+
+class RecommendationPerformanceSummary(BaseModel):
+    """Output of shared/recommendation_analytics.summarize_performance()."""
+    final_outcome_count: int
+    target_hit_rate: Optional[float] = None
+    stop_hit_rate: Optional[float] = None
+    average_return: Optional[float] = None
