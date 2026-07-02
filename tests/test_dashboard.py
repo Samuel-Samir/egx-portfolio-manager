@@ -3,10 +3,12 @@ import os
 import pytest
 from streamlit.testing.v1 import AppTest
 
-# All 14 pages per the architecture doc's Page Inventory. "Reports" (the
-# 15th page listed there) is out of scope — no Job writes dated Markdown
-# files to reports/ yet.
-PAGES = [
+# All 14 read-only pages per the architecture doc's Page Inventory, plus
+# the Copilot (M7) — the one page that isn't read-only, per the Dashboard
+# Rules exception for the Copilot Tool Layer. "Reports" (the 15th page
+# listed in the doc's read-only inventory) is out of scope — no Job writes
+# dated Markdown files to reports/ yet.
+READ_ONLY_PAGES = [
     "Home",
     "Portfolio — Holdings Detail",
     "Watchlist",
@@ -22,6 +24,7 @@ PAGES = [
     "Job Status",
     "Raw Database Explorer",
 ]
+PAGES = READ_ONLY_PAGES + ["Copilot"]
 
 
 def _require_real_db():
@@ -29,7 +32,7 @@ def _require_real_db():
         pytest.skip("data/egx.db not present — run collection + Long-Term Job first")
 
 
-@pytest.mark.parametrize("page", PAGES)
+@pytest.mark.parametrize("page", READ_ONLY_PAGES)
 def test_page_renders_without_exception(page):
     _require_real_db()
     at = AppTest.from_file("app.py")
@@ -38,8 +41,20 @@ def test_page_renders_without_exception(page):
     assert list(at.exception) == []
 
 
-def test_all_14_pages_registered():
+def test_copilot_page_renders_without_exception():
+    # Only requires ANTHROPIC_API_KEY to construct the client, not a network
+    # call — the page renders its empty chat + pending-plans UI on load.
+    _require_real_db()
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        pytest.skip("ANTHROPIC_API_KEY not set")
+    at = AppTest.from_file("app.py")
+    at.run(timeout=30)
+    at.sidebar.radio[0].set_value("Copilot").run(timeout=30)
+    assert list(at.exception) == []
+
+
+def test_all_15_pages_registered():
     at = AppTest.from_file("app.py")
     at.run(timeout=30)
     assert set(at.sidebar.radio[0].options) == set(PAGES)
-    assert len(PAGES) == 14
+    assert len(PAGES) == 15

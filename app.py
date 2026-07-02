@@ -1,8 +1,14 @@
-"""Full Dashboard — 14 pages, all read-only, per the Dashboard Rules
-(Section 16): no Engine calls, no LLM calls, no writes. AllocationReport on
-Home is the one exception — computed at read time via DashboardReadRepository
-(pure arithmetic, not an Engine). Every Repository call is wrapped in
-@st.cache_data(ttl=300).
+"""Full Dashboard — 14 read-only pages plus the Copilot (Section 16): no
+Engine calls, no LLM calls, no writes on the read-only pages. AllocationReport
+on Home is the one exception — computed at read time via
+DashboardReadRepository (pure arithmetic, not an Engine). Every Repository
+call on the read-only pages is wrapped in @st.cache_data(ttl=300).
+
+The Copilot page is the one deliberate exception to "Dashboard never calls
+LLM / never writes" — per the Dashboard Rules, ALL write actions go through
+the Copilot Tool Layer, and this page is that layer's UI (Section 16, M7).
+It talks to ToolRegistry/CopilotSession directly, not through a cached
+read-only Repository call.
 
 "Reports" (the 15th page in the architecture doc's inventory) is out of
 scope: no Job in this codebase writes dated Markdown files to reports/ yet.
@@ -13,16 +19,22 @@ from __future__ import annotations
 from datetime import date
 
 import streamlit as st
+from dotenv import load_dotenv
+
+load_dotenv()  # ANTHROPIC_API_KEY must be set before the Copilot page is used
 
 from egxpm.collectors.source_health_service import SourceHealthService
+from egxpm.copilot.session import CopilotSession
+from egxpm.copilot.tool_registry import ToolRegistry
 from egxpm.persistence.company_repository import CompanyRepository
 from egxpm.persistence.dashboard_read_repository import DashboardReadRepository
 from egxpm.persistence.db import init_db
-from egxpm.persistence.models import RunStatus
+from egxpm.persistence.models import Conversation, RunStatus
 from egxpm.persistence.operational_repository import OperationalRepository
 from egxpm.persistence.portfolio_repository import PortfolioRepository
 from egxpm.persistence.recommendation_repository import RecommendationRepository
 from egxpm.shared.config import load_configuration_snapshot
+from egxpm.shared.exceptions import BusinessDataError
 
 DB_PATH = "data/egx.db"
 CACHE_TTL_SECONDS = 300
@@ -537,6 +549,87 @@ def render_raw_database_explorer():
         st.write("No rows on this page.")
 
 
+def _get_copilot_session() -> CopilotSession:
+    """Session state, not @st.cache_data — this is stateful conversation,
+    not a cached read-only Repository lookup, and belongs to one browser
+    session, not shared across users the way a cached page load is."""
+    if "copilot_session" not in st.session_state:
+        registry = ToolRegistry(DB_PATH)
+        st.session_state.copilot_session = CopilotSession(registry)
+        st.session_state.copilot_display_history = []
+    return st.session_state.copilot_session
+
+
+def _ensure_conversation(session: CopilotSession) -> str:
+    if session.conversation_id is None:
+        conversation = Conversation()
+        session.registry.conversation_repo.save_conversation(conversation)
+        session.conversation_id = conversation.conversation_id
+    return session.conversation_id
+
+
+def render_copilot():
+    st.title("Copilot")
+    st.caption(
+        "Conversational analysis assistant — read-only tools run immediately; "
+        "propose_rebalance and propose_swing_analysis create a pending plan below "
+        "that you must explicitly confirm. This system never places real trades: "
+        "confirming a plan only records the decision — you still execute it "
+        "yourself in Thndr."
+    )
+    session = _get_copilot_session()
+
+    for role, text in st.session_state.copilot_display_history:
+        with st.chat_message(role):
+            st.markdown(text)
+
+    user_text = st.chat_input("Ask about a company, your portfolio, or propose a plan...")
+    if user_text:
+        st.session_state.copilot_display_history.append(("user", user_text))
+        with st.chat_message("user"):
+            st.markdown(user_text)
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    reply = session.send_message(user_text)
+                except BusinessDataError as exc:
+                    reply = f"(the LLM call failed: {exc})"
+            st.markdown(reply)
+        st.session_state.copilot_display_history.append(("assistant", reply))
+
+    pending = session.state.pending_plans
+    if pending:
+        st.subheader("Pending Plans")
+        st.caption("Clicking Confirm is the explicit approval step — nothing is applied without it.")
+        for plan_id, plan in list(pending.items()):
+            with st.expander(f"{plan.get('plan_type', 'plan')} — {plan_id}"):
+                st.json(plan)
+                if st.button("Confirm", key=f"confirm-{plan_id}"):
+                    result = session.registry.execute(
+                        "confirm_and_apply", {"plan_id": plan_id}, session.state
+                    )
+                    if result.success:
+                        st.success(result.data["message"])
+                    else:
+                        st.error(result.error)
+                    st.rerun()
+
+    if session.state.confirmed_plan_ids:
+        st.caption(f"Confirmed this session: {', '.join(session.state.confirmed_plan_ids)}")
+
+    if st.session_state.copilot_display_history and st.button("Save session"):
+        conversation_id = _ensure_conversation(session)
+        result = session.registry.execute(
+            "save_analysis_session",
+            {"session_id": session.session_id, "conversation_id": conversation_id},
+            session.state,
+        )
+        if result.success:
+            st.success(f"Session saved (session_id={session.session_id}).")
+        else:
+            st.error(result.error)
+
+
 PAGES = {
     "Home": render_home,
     "Portfolio — Holdings Detail": render_portfolio_holdings,
@@ -552,6 +645,7 @@ PAGES = {
     "Collector Status": render_collector_status,
     "Job Status": render_job_status,
     "Raw Database Explorer": render_raw_database_explorer,
+    "Copilot": render_copilot,
 }
 
 page_name = st.sidebar.radio("Page", list(PAGES.keys()))
