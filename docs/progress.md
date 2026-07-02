@@ -1,7 +1,7 @@
 # EGX Portfolio Manager — Development Progress
 
 ## Current Status
-**Active Milestone: M6 — Swing Job + Full Dashboard**
+**Active Milestone: M7 — Portfolio Review + Copilot**
 **Last Updated: 2026-07-02**
 
 ---
@@ -16,7 +16,7 @@
 | M3 — News + News Processing Engine | ✅ Done | 2026-07-01 |
 | M4 — Scoring + Risk + Confidence | ✅ Done | 2026-07-02 |
 | M5 — First Complete Job + Minimal Dashboard | ✅ Done | 2026-07-02 |
-| M6 — Swing Job + Full Dashboard | ⏳ Not Started | — |
+| M6 — Swing Job + Full Dashboard | ✅ Done | 2026-07-02 |
 | M7 — Portfolio Review + Copilot | ⏳ Not Started | — |
 | M8 — Hardening | ⏳ Not Started | — |
 | M9 — Specification Freeze | ⏳ Not Started | — |
@@ -120,14 +120,28 @@
 
 ## M6 — Swing Job + Full Dashboard Checklist
 
-- [ ] Swing Job (run_swing.py) — candidate filter with CORRECT AND/OR precedence: `(breakout OR unusual_volume OR trend=BULLISH) AND score >= threshold`, NOT the buggy `breakout OR unusual_volume OR (trend=BULLISH AND score>=threshold)`
-- [ ] ensure_fresh_data calls CollectorService directly (not nested Job) — already implemented this way in run_longterm.py, reuse the same helper
-- [ ] cron configuration with DST note
-- [ ] All 14 Dashboard pages (currently only 4 exist from M5) using DashboardReadRepository or a designated single-owner Repository
-- [ ] Swing candidate filter verified: breakout=True + score=15 -> BLOCKED; breakout=True + score=75 -> PASSES
-- [ ] ensure_fresh_data verified: no nested Job record created for inline collection
-- [ ] All 14 pages render against real DB data
-- [ ] Position Sizing Engine (built in M5) gets its first real caller here — Stage 9 is swing-only
+- [x] Swing Job (run_swing.py) — candidate filter with CORRECT AND/OR precedence: `(breakout OR unusual_volume OR trend=BULLISH) AND score >= threshold`, NOT the buggy `breakout OR unusual_volume OR (trend=BULLISH AND score>=threshold)`
+- [x] ensure_fresh_data calls CollectorService directly (not nested Job) — extracted into a shared module (`egxpm/collectors/ensure_fresh_data.py`), reused by both Jobs
+- [x] cron configuration with DST note (`deploy/crontab`)
+- [x] All 14 Dashboard pages using DashboardReadRepository or a designated single-owner Repository
+- [x] Swing candidate filter verified: breakout=True + score=15 -> BLOCKED; breakout=True + score=75 -> PASSES (exact validation-criteria cases, plus 7 more precedence-regression tests)
+- [x] ensure_fresh_data verified: no nested Job record created for inline collection (verified live: 7 total Job rows across all M1-M6 runs, zero of them spurious; CollectionRuns from inline freshness checks correctly have job_id=NULL)
+- [x] All 14 pages render against real DB data (Streamlit AppTest, zero exceptions, plus a real manually-started server confirming HTTP 200)
+- [x] Position Sizing Engine (built in M5) gets its first real caller here — Stage 9 is swing-only (verified via a synthetic breakout integration test, since real market data currently shows zero candidates)
+
+---
+
+## M7 — Portfolio Review + Copilot Checklist
+
+- [ ] Portfolio Review Job (produces RebalancePlan) — run_review.py
+- [ ] Tool Registry (15 tools, safety tiers: Read/Propose/Execute, plan_id-keyed pending_plans — NOT keyed by tool name, multiple plans of same type can coexist)
+- [ ] Conversation loop (max_rounds=5, max_tool_calls=15, typed tool_result blocks — provider-protocol adapter, not plain text serialization)
+- [ ] AnalysisSession workspace (companies_in_scope, pending_plans, simulation_results, draft_shortlist, notes, promoted_to_rec_id)
+- [ ] Streamlit Copilot UI
+- [ ] `run_review.py --capital 50000` produces a RebalancePlan
+- [ ] Scripted acceptance test: compare 2 companies -> simulate -> propose 2 plans -> confirm one (other stays intact) -> confirm wrong plan_id -> ToolResult.error
+- [ ] session.pending_plans has 2 entries with distinct plan_ids after two propose calls
+- [ ] Every state-changing Tool action follows Plan -> Review -> Approve -> Execute -> Audit (INVARIANT, never skip)
 
 ---
 
@@ -232,6 +246,20 @@
   - **Tooling note**: the interactive preview tool couldn't attach to this project's `uv`-managed venv — `PermissionError` reading `.venv/pyvenv.cfg`, traced to a `com.apple.provenance` extended attribute the sandboxed preview process can't read past. Not a bug in the app. Verified dashboard correctness instead via Streamlit's built-in `AppTest` (in-process headless testing, now `tests/test_dashboard.py`) and a manually-started real server (`curl` HTTP 200, clean startup log, no errors).
   - 209 tests passing total (168 from M0-M4 + 41 new: 9 Position Sizing + 11 Context Aggregator + 8 LLM client + 3 Checkpoint B + 6 run_longterm + 4 dashboard).
 - **Next:** Start M6 — Swing Job + Full Dashboard. The Swing candidate filter's AND/OR precedence bug is explicitly called out in CLAUDE.md as a named pitfall to avoid — double-check the implementation against the two given test cases before considering it done. Position Sizing Engine (built in M5, unused until now) gets its first real caller.
+
+### Session 8 — 2026-07-02
+- Completed M6 — Swing Job + Full Dashboard in full.
+  - **Refactored before adding new code**: extracted `egxpm/collectors/ensure_fresh_data.py` (shared by both Jobs) and `egxpm/scoring_pipeline.py` (the common Stage 3-7 + Checkpoint A machinery), pulling this logic out of `run_longterm.py` first rather than copy-pasting it into `run_swing.py`. `run_longterm.py` shrank from ~384 to ~250 lines with verified-identical behavior (reran `--dry-run` against a scratch copy of real data: same 6 scored/6 failed/0 recommendations as before the refactor).
+  - `egxpm/run_swing.py`: the Swing Job. `passes_swing_filter()` implements `(breakout OR unusual_volume OR trend=BULLISH) AND composite_score >= threshold` — the exact precedence CLAUDE.md calls out by name as a pitfall. 9 tests, including the two literal validation-criteria cases (breakout=True+score=15 blocked, breakout=True+score=75 passes) plus regression coverage proving the buggy alternate parenthesization would have let unusual_volume/breakout bypass the score gate entirely.
+  - **Financial Engine "skip" resolved pragmatically**: the architecture doc says the Swing Job reads "existing FinancialMetrics from last Long-Term Job," but there's no `financial_metrics` table — only the Score computed from it is persisted. Rather than reconstructing a `FinancialMetrics` object from a persisted Score's breakdown JSON (fragile, an inversion of the normal data flow), Swing recomputes `calculate_financial_metrics()` over the SAME already-collected `FinancialStatement` rows Long-Term used. Since Financial Engine is pure and those statements only change quarterly, this produces an identical result with zero extra I/O — functionally the same outcome the spec describes, without a separate code path.
+  - Position Sizing Engine (built in M5, unused until now) gets its first real caller — Stage 9 is swing-only. Verified live: real market data at the time showed **zero real swing candidates** across all 6 covered companies (bearish/neutral trend, no breakout/unusual volume anywhere) — a genuine, verified market condition, not a bug. Added a synthetic integration test (mocked LLM, no network cost) engineering a breakout via the same flat-then-spike candle pattern already proven in `test_technical_engine.py`, confirming the full pipeline (Position Sizing -> Context -> Reasoning -> Recommendation) produces a Recommendation with correctly-ordered `stop_loss < entry_price < take_profit` when a candidate does pass.
+  - **ensure_fresh_data validation criterion verified live**: across 2 full Swing Job runs plus all of M1-M5's runs, only 7 total `Job` rows exist in the database — all legitimate (5 Collection + 1 Long-Term + 1 Swing) — with zero spurious nested Job rows from inline freshness checks. Those checks instead produced `CollectionRun` rows with `job_id=NULL`, exactly as designed.
+  - `deploy/crontab`: the cron schedule with a DST note — Egypt abolished DST in 2023 (permanent fixed UTC+2), so there's no seasonal transition logic needed; the note explains `TZ=Africa/Cairo` as the simplest way to deploy correctly on a non-Cairo server.
+  - Extended `DashboardReadRepository` (`get_holdings_detail`, `get_watchlist_detail`, `get_company_analysis`) and `OperationalRepository` (`list_table_names`/`query_table`/`count_table_rows` for the Raw Database Explorer — table name validated against a live `sqlite_master` whitelist before being interpolated into a query, since SQLite can't parameterize identifiers; verified against a real injection-attempt string).
+  - Built all 14 Dashboard pages (10 new: Portfolio Holdings Detail, Watchlist, Swing Trading, Recommendations History, Recommendation Performance, Company Analysis, Financial Statements, News Feed, Historical Timeline, Raw Database Explorer; Collector Status enhanced with `SourceHealthService`). All 14 rendered with **zero exceptions on the first attempt** (Streamlit's `AppTest`, parametrized one-test-per-page), reconfirmed with a real manually-started server (curl HTTP 200, clean log).
+  - Swing Trading page identifies swing-originated Recommendations via `stop_loss IS NOT NULL` rather than joining to the `jobs` table — only swing Recommendations carry ATR-based stop/target/size (Position Sizing is swing-only), so this is a reliable, join-free signal.
+  - 241 tests passing total (211 from M0-M5 + 30 new: 7 ensure_fresh_data + 9 run_swing filter + 1 run_swing synthetic integration + 9 dashboard-repository extensions + 15 dashboard (14 pages + registration check) — note some M5 tests were consolidated/moved during the refactor, not simply added).
+- **Next:** Start M7 — Portfolio Review + Copilot. This introduces the first user-facing write path (propose/confirm plans through a Tool Registry) — read the Plan -> Review -> Approve -> Execute -> Audit invariant carefully, since it's explicitly never to be skipped for any state-changing Tool action.
 
 ---
 
