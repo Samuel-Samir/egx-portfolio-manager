@@ -1,7 +1,7 @@
 # EGX Portfolio Manager — Development Progress
 
 ## Current Status
-**Active Milestone: M9 — Specification Freeze**
+**All 9 milestones complete — tagged v1.0 / architecture-v1.0**
 **Last Updated: 2026-07-03**
 
 ---
@@ -19,7 +19,7 @@
 | M6 — Swing Job + Full Dashboard | ✅ Done | 2026-07-02 |
 | M7 — Portfolio Review + Copilot | ✅ Done | 2026-07-02 |
 | M8 — Hardening | ✅ Done | 2026-07-03 |
-| M9 — Specification Freeze | ⏳ Not Started | — |
+| M9 — Specification Freeze | ✅ Done | 2026-07-03 |
 
 ---
 
@@ -157,6 +157,21 @@
 - [x] Recommendation performance analytics verified against manually computed reference values
 - [x] Zero open TODO/required-follow-up flags in document
 - [x] Terminology audit complete
+
+---
+
+## M9 — Specification Freeze Checklist
+
+- [x] Remove all pending-amendment and TODO flags (codebase side — the .docx itself is left untouched, see Notes)
+- [x] Update Section 6 pipeline diagram (verify "as built" matches the documented Stages 1-13 + 6a/6b/6c + Checkpoints A/B)
+- [x] Terminology audit pass (re-confirm M8's audit still holds)
+- [x] Cross-reference verification
+- [x] Tag git commit architecture-v1.0
+- [x] Tag codebase v1.0
+- [x] Zero open flags (codebase)
+- [x] Zero terminology inconsistencies (codebase)
+- [x] Section 6 diagram matches Section 12 pipeline as built
+- [x] A new developer can understand every system behavior from CLAUDE.md + progress.md + the codebase itself (the .docx was left untouched — see Notes)
 
 ---
 
@@ -303,6 +318,17 @@
   - **Terminology audit against Appendix A.1**: found one genuine drift (`technical_engine.py`'s docstring said "indicators + derived signals" instead of naming `TechnicalSnapshot.indicators`/`TechnicalSnapshot.signals` explicitly — fixed). Everything else checked either had zero matches or was CLAUDE.md's own literal wording (CLAUDE.md quotes "allocation arithmetic" verbatim in its own AllocationCalculator contract) or a genuinely different concept (`technical_reference_collector.py`'s "raw indicators" refers to the real `raw_indicators` column on `technical_reference_snapshots`, a different table). Deliberately did NOT rename `WatchlistState`/`watchlist_history` to "MonitoringIntent" per the appendix's forbidden-alias entry for that concept — CLAUDE.md (the higher-priority, explicitly overriding document) names this concept `WatchlistState` throughout its own "Watchlist States" section; the full doc's Section 11 uses "Monitoring Intent" as the abstract dimension's name in prose while still persisting it through `watchlist_history` — a documentation-terminology distinction, not an instruction to rename the schema this codebase is built around.
   - 298 tests passing total (274 from M0-M7 + 24 new: 1 dedup regression + 4 corporate-actions-collector + 3 record-corporate-action + 3 Section 8 live validation + 4 recommendation analytics + 8 CollectorService + 1 get_latest_prices).
 - **Next:** Start M9 — Specification Freeze (per Section 17.1: remove pending-amendment/TODO flags, verify Section 6 pipeline diagram matches implementation, a final cross-reference/terminology pass, tag `architecture-v1.0` and `v1.0`). This is the last milestone — after it, the system is v1.0 per the doc's own definition, though real Holding data still needs to be entered by the user before the dashboard/Portfolio Review reflect actual positions (flagged since M5, still open).
+
+### Session 11 — 2026-07-03
+- Completed M9 — Specification Freeze in full. This is the last milestone; the codebase is now tagged `v1.0` and the architecture reference is tagged `architecture-v1.0`.
+  - **Asked the user how to handle the .docx itself** before doing anything else: M9's "remove pending-amendment/TODO flags" and "update Section 6 diagram" deliverables literally target `docs/EGX_Investment_OS_Architecture_v1.0.docx`, but there's no reliable tooling here to safely edit an embedded Word diagram, and even a text-only edit risks corrupting a binary file I can't visually re-verify afterward. The user chose to leave the .docx untouched entirely — it remains exactly as provided, and the items below are documented here instead of edited into it.
+  - **Codebase-side "remove TODO flags"**: grepped the full codebase (`egxpm/`, `app.py`, `tests/`) for `TODO`/`FIXME`/`XXX:`/`HACK:` — zero matches. Nothing to remove.
+  - **Section 6 pipeline cross-reference verification**: re-read `run_longterm.py` and `run_swing.py` stage-by-stage against the canonical Stages 1-13 + 6a/6b/6c + Checkpoints A/B. Both Jobs implement every stage in the documented order, including one already-resolved, deliberate ordering nuance from M4: Stage 8 (Portfolio Engine/AllocationReport) is actually computed *before* Stage 6b (Risk Engine) in both Jobs, not after as the stage numbering alone would suggest — because Risk Engine's liquidity component needs a `hypothetical_position_size_egp` derived from the portfolio total, a genuine cross-stage input dependency documented back in M4's session log, not a new finding or a bug.
+  - **Terminology re-check**: re-ran M8's full forbidden-alias grep across the codebase — zero matches, confirming M8's audit still holds and nothing introduced during M8's own fixes regressed it.
+  - **Docx staleness noted, not edited**: the architecture doc's own text still contains at least one now-resolved placeholder — a "Scraping / XHR (TBD)" note for the Mubasher News Collector in the Section 6 data-source table, even though M3 resolved this on day one via plain server-rendered HTML (no XHR/Playwright needed). This and Section 7.6's "Open Items for Discovery" list (Mubasher XHR, corporate-actions automation, symbol normalization) are stale relative to what was actually built — Appendix A.3's "Open Items Resolved" table already captures most of these; the doc simply wasn't hand-edited to remove the earlier forward-looking markers. Left as-is per the user's decision above.
+  - Tagged the current commit `v1.0` (codebase) and `architecture-v1.0` (the frozen architecture reference, unedited) — both local tags, no remote configured.
+  - 298 tests passing (no new tests this session — M9 was verification/consolidation, not new functionality).
+- **What "v1.0" means in practice**: the system fully implements CLAUDE.md's architecture end-to-end — all 10 architectural invariants, the 13-stage pipeline with both checkpoints, the 15-tool Copilot with Plan→Review→Approve→Execute→Audit, and Corporate Actions. It has NOT yet been used with real financial data: no real Holding (quantities/cost basis) has been entered for any of the 6 currently-held positions (ADA/BMM/CLOUD/PALM/NARE/ABR), and 5 of the 12 Phase 1 companies (ADA/BMM/CLOUD/ABR/EFGD) have zero data available from any of the 4 sources checked (a real, permanent EGX coverage gap, not a bug). Both are pre-existing, previously-flagged, user-actionable items — not defects introduced by this build.
 
 ---
 
