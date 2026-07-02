@@ -1,7 +1,7 @@
 # EGX Portfolio Manager — Development Progress
 
 ## Current Status
-**Active Milestone: M7 — Portfolio Review + Copilot**
+**Active Milestone: M8 — Hardening**
 **Last Updated: 2026-07-02**
 
 ---
@@ -17,7 +17,7 @@
 | M4 — Scoring + Risk + Confidence | ✅ Done | 2026-07-02 |
 | M5 — First Complete Job + Minimal Dashboard | ✅ Done | 2026-07-02 |
 | M6 — Swing Job + Full Dashboard | ✅ Done | 2026-07-02 |
-| M7 — Portfolio Review + Copilot | ⏳ Not Started | — |
+| M7 — Portfolio Review + Copilot | ✅ Done | 2026-07-02 |
 | M8 — Hardening | ⏳ Not Started | — |
 | M9 — Specification Freeze | ⏳ Not Started | — |
 
@@ -133,15 +133,15 @@
 
 ## M7 — Portfolio Review + Copilot Checklist
 
-- [ ] Portfolio Review Job (produces RebalancePlan) — run_review.py
-- [ ] Tool Registry (15 tools, safety tiers: Read/Propose/Execute, plan_id-keyed pending_plans — NOT keyed by tool name, multiple plans of same type can coexist)
-- [ ] Conversation loop (max_rounds=5, max_tool_calls=15, typed tool_result blocks — provider-protocol adapter, not plain text serialization)
-- [ ] AnalysisSession workspace (companies_in_scope, pending_plans, simulation_results, draft_shortlist, notes, promoted_to_rec_id)
-- [ ] Streamlit Copilot UI
-- [ ] `run_review.py --capital 50000` produces a RebalancePlan
-- [ ] Scripted acceptance test: compare 2 companies -> simulate -> propose 2 plans -> confirm one (other stays intact) -> confirm wrong plan_id -> ToolResult.error
-- [ ] session.pending_plans has 2 entries with distinct plan_ids after two propose calls
-- [ ] Every state-changing Tool action follows Plan -> Review -> Approve -> Execute -> Audit (INVARIANT, never skip)
+- [x] Portfolio Review Job (produces RebalancePlan) — run_review.py
+- [x] Tool Registry (15 tools, safety tiers: Read/Propose/Execute, plan_id-keyed pending_plans — NOT keyed by tool name, multiple plans of same type can coexist)
+- [x] Conversation loop (max_rounds=5, max_tool_calls=15, typed tool_result blocks — provider-protocol adapter, not plain text serialization)
+- [x] AnalysisSession workspace (companies_in_scope, pending_plans, simulation_results, draft_shortlist, notes, promoted_to_rec_id)
+- [x] Streamlit Copilot UI
+- [x] `run_review.py --capital 50000` produces a RebalancePlan
+- [x] Scripted acceptance test: compare 2 companies -> simulate -> propose 2 plans -> confirm one (other stays intact) -> confirm wrong plan_id -> ToolResult.error
+- [x] session.pending_plans has 2 entries with distinct plan_ids after two propose calls
+- [x] Every state-changing Tool action follows Plan -> Review -> Approve -> Execute -> Audit (INVARIANT, never skip)
 
 ---
 
@@ -260,6 +260,23 @@
   - Swing Trading page identifies swing-originated Recommendations via `stop_loss IS NOT NULL` rather than joining to the `jobs` table — only swing Recommendations carry ATR-based stop/target/size (Position Sizing is swing-only), so this is a reliable, join-free signal.
   - 241 tests passing total (211 from M0-M5 + 30 new: 7 ensure_fresh_data + 9 run_swing filter + 1 run_swing synthetic integration + 9 dashboard-repository extensions + 15 dashboard (14 pages + registration check) — note some M5 tests were consolidated/moved during the refactor, not simply added).
 - **Next:** Start M7 — Portfolio Review + Copilot. This introduces the first user-facing write path (propose/confirm plans through a Tool Registry) — read the Plan -> Review -> Approve -> Execute -> Audit invariant carefully, since it's explicitly never to be skipped for any state-changing Tool action.
+
+### Session 9 — 2026-07-02
+- Completed M7 — Portfolio Review + Copilot in full. This is the first milestone with a user-facing write path.
+  - **`egxpm/engine/portfolio_engine.py` built for the first time this milestone** — it was in CLAUDE.md's file listing since M0 but M4-M6's Jobs had all been calling `shared/allocation_calculator.calculate()` directly. M7 needed `PortfolioEngine.simulate()` explicitly, so it was built now: `apply_action()` (public — the Tool Registry needs it directly for `propose_rebalance`'s chained simulation) plus thin `calculate_allocation()`/`simulate()` wrappers. Same signature gap as always with this contract (missing `prices`/`cash`), resolved the same way as M5's Position Sizing Engine — explicit added parameters, documented inline. 11 tests.
+  - **Where do Plans live? Resolved as: nowhere in SQL.** No `rebalance_plans`/`swing_plans` table exists in the M0 schema, and adding one now would violate "ALL tables must be created at Milestone 0" far more than earlier judgment calls (like M3's `lexicon_version` column, which the system fully owns). `egxpm/copilot/models.py`'s `RebalancePlan`/`SwingPlan` are ephemeral, session-scoped Pydantic objects that live only inside `AnalysisSessionState.pending_plans`, serialized into the already-existing generic `AnalysisSession.state` JSON column only when a session is explicitly saved.
+  - `egxpm/copilot/tool_registry.py`: all 15 tools (10 Read, 2 Propose, 3 Execute) as one `ToolRegistry` class. `execute(tool_name, arguments, session)` dispatches by tier and converts `BusinessDataError` into `ToolResult(success=False, error=...)` — never a raised exception for an expected failure like a wrong `plan_id` or missing data; `ValueError`/`AssertionError` still propagate as genuine bugs.
+    - `propose_rebalance` computes the exact allocation in Python — equal-weight capital split across the top-N WATCHLIST candidates by `composite_score`, capped at `max_per_stock_pct` of portfolio value per stock — the LLM only narrates the resulting plan, never decides the numbers, per "LLM never calculates."
+    - `propose_swing_analysis` intentionally does NOT assemble a risk-adjusted composite score (that requires the Stage 6a sector-wide barrier across every company, too heavy for a single on-demand preview) — it surfaces the three raw sub-scores instead; only the scheduled Swing Job produces the real composite.
+    - `confirm_and_apply` never places a real trade (Section 15.6) — it pops the plan from `pending_plans`, records it in `confirmed_plan_ids`, and returns a message instructing the user to execute manually in Thndr.
+  - `egxpm/copilot/session.py`: `CopilotSession` — the conversation loop. Loops Claude <-> tools up to `copilot_max_tool_rounds` (5), capping total tool calls at `copilot_max_tool_calls` (15) per user turn; forces a text-only final answer (`tool_choice: none`) if the round budget is exhausted with tool calls still pending. `messages` carries typed content blocks (SDK `ContentBlock` objects for assistant turns, hand-built `tool_result` dicts for tool responses), never a flattened plain-text transcript. 8 tests against a fake registry/client covering the round loop, the forced-final-call path, the per-round tool-call budget, and the typed `tool_result` block shape.
+  - `egxpm/run_review.py`: thin CLI wrapper around `ToolRegistry.propose_rebalance` — reuses the one canonical rebalancing implementation rather than duplicating it (invariant #10). Persists the resulting plan inside a fresh `AnalysisSession` so a CLI-produced plan isn't silently lost, but never applies it — confirmation still requires the Copilot's `confirm_and_apply`.
+  - **Verified live end-to-end against real production data** (`data/egx.db`, real scores from M4-M6's real runs): `python -m egxpm.run_review --capital 50000` produced a real 6-company equal-weight plan (ABUK/EFIH/PALM/COMI/TMGH/SWDY) and persisted a real `AnalysisSession` row. Since no real Holding data has been entered yet (flagged since M5), the per-stock cap degrades to an unconstrained equal split — a correctly-documented consequence of the known data gap, not a bug.
+  - `app.py`: added the Copilot as the dashboard's 15th page — the one deliberate exception to "Dashboard never calls LLM / never writes," since it *is* the Copilot Tool Layer's UI. Chat interface backed by `CopilotSession` in `st.session_state` (per-browser-session, not `@st.cache_data`); pending plans render as expanders with a Confirm button (the explicit user-approval step); a Save session button persists the `AnalysisSession`.
+  - **Verified live end-to-end via Streamlit's `AppTest`** (same sandbox limitation as M5 — the interactive preview still can't attach to this venv): a real chat question about TMGH correctly called `get_company_summary` and returned its real composite score (41.72) with correct sector/trend/confidence; `propose_rebalance` via chat produced a real pending plan; clicking Confirm correctly moved it into `confirmed_plan_ids` and removed it from `pending_plans` (checked directly against `session.state`, not just the rendered UI); Save session persisted a real `AnalysisSession` row.
+  - Scripted acceptance test (`tests/test_tool_registry.py::test_full_acceptance_scenario`) covers the exact M7 validation criterion: compare 2 companies -> simulate -> propose 2 plans (distinct `plan_id`s) -> confirm one (the other stays in `pending_plans`) -> confirm a nonexistent `plan_id` -> `ToolResult.error`.
+  - 274 tests passing total (241 from M0-M6 + 33 new: 11 Portfolio Engine + 11 Tool Registry + 8 Copilot session + 2 run_review + 1 Copilot dashboard page, with the old "14 pages registered" test replaced by a "15 pages registered" test).
+- **Next:** Start M8 — Hardening. No specific scope has been read from CLAUDE.md yet for M8/M9 beyond their milestone-table names ("Hardening" / "Specification Freeze") — read the architecture doc's M8/M9 sections at the start of that session before assuming scope.
 
 ---
 
