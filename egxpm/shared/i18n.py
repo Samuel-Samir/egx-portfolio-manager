@@ -61,6 +61,23 @@ _AR: dict[str, str] = {
     # Portfolio Holdings Detail
     "No Holdings on record. This is expected until real positions are entered.":
         "لا توجد مراكز مسجلة. هذا متوقع حتى يتم إدخال المراكز الفعلية.",
+    "Add Transaction": "إضافة معاملة",
+    "Records a real transaction you made (or are about to make) in Thndr — this "
+    "system never places real trades itself. Updates your Holdings and adds it "
+    "to the transaction history below.":
+        "يسجّل معاملة حقيقية قمت بها (أو ستقوم بها) في تطبيق Thndr — هذا النظام "
+        "لا ينفّذ صفقات حقيقية بنفسه أبداً. يحدّث مراكزك ويضيفها إلى سجل "
+        "المعاملات أدناه.",
+    "required for a new position": "مطلوبة لفتح مركز جديد",
+    "Link to a Recommendation (optional)": "ربط بتوصية (اختياري)",
+    "none": "لا شيء",
+    "Add": "إضافة",
+    "recorded": "تم التسجيل",
+    "Transaction History": "سجل المعاملات",
+    "No transactions recorded yet.": "لا توجد معاملات مسجلة حتى الآن.",
+    "Executed At": "تاريخ التنفيذ",
+    "Recommendation": "التوصية",
+    "Price": "السعر",
 
     # Watchlist
     "No WATCHLIST or CANDIDATE companies found.": "لا توجد شركات في قائمة المتابعة أو المرشحين.",

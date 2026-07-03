@@ -156,6 +156,11 @@ def load_recommendation_events(recommendation_id: str):
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS)
+def load_all_executions():
+    return RecommendationRepository(DB_PATH).list_all_executions()
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_table_names():
     return OperationalRepository(DB_PATH).list_table_names()
 
@@ -226,20 +231,80 @@ def render_portfolio_holdings():
     rows = load_holdings_detail()
     if not rows:
         st.write(t("No Holdings on record. This is expected until real positions are entered.", lang))
-        return
+    else:
+        table = []
+        for row in rows:
+            holding, company, score = row["holding"], row["company"], row["score"]
+            table.append({
+                t("Company", lang): holding.company_id, t("Name", lang): company.name if company else None,
+                t("Category", lang): holding.category.value, t("Quantity", lang): holding.quantity,
+                t("Avg Cost", lang): holding.average_cost, t("Latest Price", lang): row["latest_price"],
+                t("Unrealized P&L", lang): row["unrealized_pnl"],
+                t("Composite Score", lang): score.composite_score if score else None,
+                t("Confidence", lang): row["confidence"].confidence_value if row["confidence"] else None,
+            })
+        st.dataframe(table, width="stretch")
 
-    table = []
-    for row in rows:
-        holding, company, score = row["holding"], row["company"], row["score"]
-        table.append({
-            t("Company", lang): holding.company_id, t("Name", lang): company.name if company else None,
-            t("Category", lang): holding.category.value, t("Quantity", lang): holding.quantity,
-            t("Avg Cost", lang): holding.average_cost, t("Latest Price", lang): row["latest_price"],
-            t("Unrealized P&L", lang): row["unrealized_pnl"],
-            t("Composite Score", lang): score.composite_score if score else None,
-            t("Confidence", lang): row["confidence"].confidence_value if row["confidence"] else None,
-        })
-    st.dataframe(table, width="stretch")
+    st.subheader(t("Add Transaction", lang))
+    st.caption(t(
+        "Records a real transaction you made (or are about to make) in Thndr — this "
+        "system never places real trades itself. Updates your Holdings and adds it "
+        "to the transaction history below.",
+        lang,
+    ))
+
+    companies = load_companies_overview()
+    session = _get_copilot_session()
+
+    col1, col2 = st.columns(2)
+    company_id = col1.selectbox(t("Company", lang), [c.company_id for c in companies], key="txn_company")
+    action = col2.selectbox(t("Action", lang), ["BUY", "ADD", "SELL", "TRIM"], key="txn_action")
+    col3, col4 = st.columns(2)
+    quantity = col3.number_input(t("Quantity", lang), min_value=0.0, step=1.0, key="txn_quantity")
+    price = col4.number_input(t("Price", lang), min_value=0.0, step=0.01, format="%.2f", key="txn_price")
+    category = st.selectbox(
+        f"{t('Category', lang)} ({t('required for a new position', lang)})",
+        ["", "bmm_index", "long_term_stocks", "swing_trading", "cloud_cash", "gold"],
+        key="txn_category",
+    )
+    related_recs = [r for r in load_all_recommendations() if r.company_id == company_id][:10]
+    rec_none_label = f"({t('none', lang)})"
+    rec_options = [rec_none_label] + [f"{r.action.value} @ {r.created_at}" for r in related_recs]
+    rec_choice = st.selectbox(t("Link to a Recommendation (optional)", lang), rec_options, key="txn_rec")
+
+    if st.button(t("Add", lang)):
+        recommendation_id = None
+        if rec_choice != rec_none_label:
+            recommendation_id = related_recs[rec_options.index(rec_choice) - 1].recommendation_id
+        result = session.registry.execute("record_holding_transaction", {
+            "company_id": company_id, "action": action, "quantity": quantity, "price": price,
+            "category": category or None, "recommendation_id": recommendation_id,
+        }, session.state)
+        if result.success:
+            st.success(f"{action} {quantity} {company_id} @ {price:.2f} EGP — {t('recorded', lang)}.")
+            load_holdings_detail.clear()
+            load_allocation.clear()
+            load_portfolio_snapshot_history.clear()
+            load_all_executions.clear()
+            st.rerun()
+        else:
+            st.error(result.error)
+
+    st.subheader(t("Transaction History", lang))
+    executions = load_all_executions()
+    if not executions:
+        st.write(t("No transactions recorded yet.", lang))
+    else:
+        exec_table = [
+            {
+                t("Executed At", lang): e.executed_at, t("Action", lang): e.details.get("action"),
+                t("Company", lang): e.details.get("company_id"), t("Quantity", lang): e.details.get("quantity"),
+                t("Price", lang): e.details.get("price"),
+                t("Recommendation", lang): e.recommendation_id[:8] if e.recommendation_id else None,
+            }
+            for e in executions
+        ]
+        st.dataframe(exec_table, width="stretch")
 
 
 def render_watchlist():
