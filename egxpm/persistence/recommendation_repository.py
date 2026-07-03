@@ -155,6 +155,20 @@ class RecommendationRepository:
                 out.append(Execution(**d))
             return out
 
+    def list_all_executions(self) -> list[Execution]:
+        """Every Execution on record, most recent first — the full
+        transaction history (an Execution may exist without a prior
+        Recommendation, invariant Section 10.4, e.g. a manually-recorded
+        real holding transaction not following any system recommendation)."""
+        with connect(self.db_path) as conn:
+            rows = conn.execute("SELECT * FROM executions ORDER BY executed_at DESC").fetchall()
+            out = []
+            for r in rows:
+                d = _util.row_to_dict(r)
+                d["details"] = _util.loads(d["details"], {})
+                out.append(Execution(**d))
+            return out
+
     # ------------------------------------------------------------
     # Outcome (append-only)
     # ------------------------------------------------------------

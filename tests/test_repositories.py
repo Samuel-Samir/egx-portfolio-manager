@@ -422,6 +422,33 @@ def test_execution_outcome_feedback_round_trip(db_path):
     assert repo.list_user_feedback(rec.recommendation_id)[0] == feedback
 
 
+def test_list_all_executions_includes_standalone_and_recommendation_linked(db_path):
+    repo = RecommendationRepository(db_path)
+    confidence, config_snapshot, portfolio_snapshot = _build_recommendation_dependencies(db_path)
+    rec = Recommendation(
+        company_id=COMPANY_ID, action=RecommendationAction.BUY,
+        confidence_id=confidence.confidence_id,
+        config_snapshot_id=config_snapshot.config_snapshot_id,
+        portfolio_snapshot_id=portfolio_snapshot.snapshot_id, job_id="job-1",
+    )
+    repo.save_recommendation(rec)
+
+    linked = Execution(recommendation_id=rec.recommendation_id, action_taken="bought per recommendation")
+    repo.save_execution(linked)
+
+    # An Execution may exist without a prior Recommendation (invariant,
+    # Section 10.4) — a manually-recorded real holding transaction.
+    standalone = Execution(recommendation_id=None, action_taken="manual entry, no recommendation")
+    repo.save_execution(standalone)
+
+    all_executions = repo.list_all_executions()
+    execution_ids = {e.execution_id for e in all_executions}
+    assert linked.execution_id in execution_ids
+    assert standalone.execution_id in execution_ids
+    standalone_row = next(e for e in all_executions if e.execution_id == standalone.execution_id)
+    assert standalone_row.recommendation_id is None
+
+
 # ------------------------------------------------------------
 # ConversationRepository
 # ------------------------------------------------------------

@@ -79,8 +79,8 @@ def seeded(db_path):
 # Tier registration
 # ------------------------------------------------------------
 
-def test_all_15_tools_registered():
-    assert len(TOOL_TIERS) == 15
+def test_all_16_tools_registered():
+    assert len(TOOL_TIERS) == 16
     assert set(TOOL_TIERS) == set(TOOL_SCHEMAS)
 
 
@@ -88,7 +88,7 @@ def test_tier_counts_match_spec():
     tiers = list(TOOL_TIERS.values())
     assert tiers.count("read") == 10
     assert tiers.count("propose") == 2
-    assert tiers.count("execute") == 3
+    assert tiers.count("execute") == 4
 
 
 # ------------------------------------------------------------
@@ -211,3 +211,96 @@ def test_dispatch_unknown_tool_is_tool_result_error(registry, session):
     result = registry.execute("delete_everything", {}, session)
     assert result.success is False
     assert "delete_everything" in result.error
+
+
+# ------------------------------------------------------------
+# record_holding_transaction
+# ------------------------------------------------------------
+
+def test_record_holding_transaction_opens_new_position(registry, session, seeded):
+    # COMPANY_B has no pre-seeded holding, unlike COMPANY_A (see `seeded`).
+    result = registry.execute("record_holding_transaction", {
+        "company_id": COMPANY_B, "action": "BUY", "quantity": 100, "price": 20.0,
+        "category": "long_term_stocks",
+    }, session)
+    assert result.success is True
+    assert result.data["portfolio_snapshot_captured"] is True
+
+    holding = next(h for h in seeded.list_holdings() if h.company_id == COMPANY_B)
+    assert holding.quantity == 100
+    assert holding.average_cost == 20.0
+
+
+def test_record_holding_transaction_requires_category_for_new_position(registry, session, seeded):
+    result = registry.execute("record_holding_transaction", {
+        "company_id": COMPANY_B, "action": "BUY", "quantity": 100, "price": 20.0,
+    }, session)
+    assert result.success is False
+    assert "without a category" in result.error
+
+
+def test_record_holding_transaction_selling_more_than_held_is_tool_result_error(registry, session, seeded):
+    # COMPANY_A already has a seeded holding of 10 shares (see `seeded`).
+    result = registry.execute("record_holding_transaction", {
+        "company_id": COMPANY_A, "action": "SELL", "quantity": 9999, "price": 10.0,
+    }, session)
+    assert result.success is False
+    holding = next(h for h in seeded.list_holdings() if h.company_id == COMPANY_A)
+    assert holding.quantity == 10  # untouched
+
+
+def test_record_holding_transaction_creates_a_standalone_execution(registry, session, seeded):
+    result = registry.execute("record_holding_transaction", {
+        "company_id": COMPANY_B, "action": "BUY", "quantity": 100, "price": 20.0,
+        "category": "long_term_stocks",
+    }, session)
+    execution = registry.recommendation_repo.get_execution(result.data["execution_id"])
+    assert execution is not None
+    assert execution.recommendation_id is None
+
+
+def test_record_holding_transaction_links_to_a_recommendation(registry, session, seeded):
+    from egxpm.persistence.models import (
+        ConfidenceScore,
+        ConfigurationSnapshot,
+        PortfolioSnapshot,
+        PortfolioSnapshotOrigin,
+        Recommendation,
+        RecommendationAction,
+    )
+
+    score = registry.company_repo.get_latest_score(COMPANY_B)
+    confidence = ConfidenceScore(score_id=score.score_id, confidence_value=0.8)
+    registry.company_repo.save_confidence_score(confidence)
+    config_snapshot = ConfigurationSnapshot(allocation_targets={"long_term_stocks": 0.4})
+    registry.operational_repo.save_configuration_snapshot(config_snapshot)
+    portfolio_snapshot = PortfolioSnapshot(origin=PortfolioSnapshotOrigin.BEFORE_RECOMMENDATION)
+    registry.portfolio_repo.save_snapshot(portfolio_snapshot)
+    rec = Recommendation(
+        company_id=COMPANY_B, action=RecommendationAction.BUY,
+        confidence_id=confidence.confidence_id, config_snapshot_id=config_snapshot.config_snapshot_id,
+        portfolio_snapshot_id=portfolio_snapshot.snapshot_id, job_id="job-1",
+    )
+    registry.recommendation_repo.save_recommendation(rec)
+
+    result = registry.execute("record_holding_transaction", {
+        "company_id": COMPANY_B, "action": "BUY", "quantity": 100, "price": 20.0,
+        "category": "long_term_stocks", "recommendation_id": rec.recommendation_id,
+    }, session)
+    assert result.success is True
+
+    linked_executions = registry.recommendation_repo.list_executions(rec.recommendation_id)
+    assert len(linked_executions) == 1
+    assert linked_executions[0].execution_id == result.data["execution_id"]
+
+    all_executions = registry.recommendation_repo.list_all_executions()
+    assert any(e.execution_id == result.data["execution_id"] for e in all_executions)
+
+
+def test_record_holding_transaction_backfills_acquired_at(registry, session, seeded):
+    registry.execute("record_holding_transaction", {
+        "company_id": COMPANY_B, "action": "BUY", "quantity": 100, "price": 20.0,
+        "category": "long_term_stocks", "acquired_at": "2025-01-15T00:00:00+00:00",
+    }, session)
+    holding = next(h for h in seeded.list_holdings() if h.company_id == COMPANY_B)
+    assert holding.acquired_at == "2025-01-15T00:00:00+00:00"

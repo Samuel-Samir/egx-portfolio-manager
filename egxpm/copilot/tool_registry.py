@@ -1,5 +1,5 @@
 """Tool Registry — the Copilot's gateway to the rest of the system
-(Section 15.3). 15 tools across three safety tiers:
+(Section 15.3). 16 tools across three safety tiers:
 
   Read    — direct execution, no side effects.
   Propose — builds a Plan and stores it in session.pending_plans; nothing
@@ -35,13 +35,17 @@ from egxpm.persistence.dashboard_read_repository import DashboardReadRepository
 from egxpm.persistence.models import (
     AnalysisSession,
     CollectionRun,
+    Execution,
     Holding,
     HoldingCategory,
+    PortfolioSnapshot,
+    PortfolioSnapshotOrigin,
     ProposedAction,
     RecommendationAction,
     RunStatus,
 )
 from egxpm.persistence.operational_repository import OperationalRepository
+from egxpm.persistence.portfolio_repository import PortfolioRepository
 from egxpm.persistence.recommendation_repository import RecommendationRepository
 from egxpm.persistence.sector_market_repository import SectorMarketRepository
 from egxpm.scoring_pipeline import compute_company_score
@@ -68,6 +72,7 @@ TOOL_TIERS: dict[str, str] = {
     "confirm_and_apply": EXECUTE,
     "trigger_collection": EXECUTE,
     "save_analysis_session": EXECUTE,
+    "record_holding_transaction": EXECUTE,
 }
 
 TOOL_SCHEMAS: dict[str, dict] = {
@@ -162,6 +167,27 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["session_id", "conversation_id"],
         },
     },
+    "record_holding_transaction": {
+        "description": "Record a real holding transaction (BUY/SELL/ADD/TRIM) that already happened "
+                        "(or that the user is about to do themselves in Thndr). Updates real Holdings and "
+                        "creates an Execution record, optionally linked to a Recommendation. This system "
+                        "never places a real trade — it only records one.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "company_id": {"type": "string"},
+                "action": {"type": "string", "enum": ["BUY", "SELL", "HOLD", "TRIM", "ADD"]},
+                "quantity": {"type": "number"}, "price": {"type": "number"},
+                "category": {
+                    "type": "string", "enum": ["bmm_index", "long_term_stocks", "swing_trading", "cloud_cash", "gold"],
+                    "description": "Required only when opening a brand-new position",
+                },
+                "recommendation_id": {"type": "string", "description": "Optional — links this transaction to a Recommendation"},
+                "acquired_at": {"type": "string", "description": "Optional ISO date override for a brand-new position"},
+            },
+            "required": ["company_id", "action", "quantity", "price"],
+        },
+    },
 }
 
 
@@ -174,6 +200,7 @@ class ToolRegistry:
         self.db_path = db_path
         self.company_repo = CompanyRepository(db_path)
         self.recommendation_repo = RecommendationRepository(db_path)
+        self.portfolio_repo = PortfolioRepository(db_path)
         self.operational_repo = OperationalRepository(db_path)
         self.sector_repo = SectorMarketRepository(db_path)
         self.dashboard_repo = DashboardReadRepository(db_path)
@@ -426,3 +453,68 @@ class ToolRegistry:
         record = AnalysisSession(session_id=session_id, conversation_id=conversation_id, state=session.model_dump())
         self.conversation_repo.save_session(record)
         return {"session_id": session_id, "saved": True}
+
+    def record_holding_transaction(
+        self, session: AnalysisSessionState, company_id: str, action: str, quantity: float, price: float,
+        category: str | None = None, recommendation_id: str | None = None, acquired_at: str | None = None,
+    ) -> dict:
+        """Records a real holding transaction — reuses PortfolioEngine.apply_action()
+        (the same canonical arithmetic record_holding.py's CLI uses: weighted-average
+        cost on BUY/ADD, quantity reduction on SELL/TRIM) and creates an Execution
+        record. `recommendation_id` is optional (an Execution may exist without one,
+        Section 10.4) — passing it is what makes "I acted on this Recommendation"
+        traceable, since this system never auto-applies a Recommendation to Holdings.
+        Never places a real trade — this only records one that already happened (or
+        that the user is about to make themselves in Thndr).
+
+        Raises:
+            InvalidActionError: selling/trimming more than held, or opening a new
+                position with no category.
+        """
+        holding_category = HoldingCategory(category) if category else None
+        proposed_action = ProposedAction(
+            company_id=company_id, action=RecommendationAction(action), quantity=quantity, price=price,
+            category=holding_category,
+        )
+
+        before = self.company_repo.list_holdings()
+        before_ids = {h.holding_id for h in before}
+        after = apply_action(before, proposed_action)
+
+        if acquired_at:
+            after = [
+                h.model_copy(update={"acquired_at": acquired_at}) if h.company_id == company_id else h
+                for h in after
+            ]
+
+        after_ids = {h.holding_id for h in after}
+        for holding_id in before_ids - after_ids:
+            self.company_repo.delete_holding(holding_id)
+        for holding in after:
+            self.company_repo.save_holding(holding)
+
+        execution = Execution(
+            recommendation_id=recommendation_id,
+            action_taken=f"{action} {quantity} {company_id} @ {price:.2f} EGP",
+            details={"company_id": company_id, "action": action, "quantity": quantity, "price": price},
+        )
+        self.recommendation_repo.save_execution(execution)
+
+        final_holdings = self.company_repo.list_holdings()
+        prices = self._current_prices(final_holdings)
+        allocation = None
+        try:
+            allocation = calculate_allocation(final_holdings, prices, cash=0.0, config=self.weights)
+            self.portfolio_repo.save_snapshot(PortfolioSnapshot(
+                holdings_snapshot=[h.model_dump() for h in final_holdings], cash=0.0,
+                computed_allocation=allocation.model_dump(), origin=PortfolioSnapshotOrigin.MANUAL,
+            ))
+        except InsufficientDataError:
+            pass  # a held company with no price on record yet — transaction still recorded
+
+        return {
+            "execution_id": execution.execution_id, "company_id": company_id, "action": action,
+            "quantity": quantity, "price": price, "recommendation_id": recommendation_id,
+            "portfolio_snapshot_captured": allocation is not None,
+            "allocation": allocation.model_dump() if allocation else None,
+        }
