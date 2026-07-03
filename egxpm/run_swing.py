@@ -33,6 +33,7 @@ from egxpm.engine.scoring_engine import build_score
 from egxpm.engine.technical_engine import TechnicalSnapshotResult
 from egxpm.llm.client import ModelConfig, generate_recommendation
 from egxpm.llm.context_aggregator import HistoricalSummary, build_context
+from egxpm.llm.context_export import build_raw_context, export_context
 from egxpm.llm.prompts import PromptRegistry
 from egxpm.persistence.company_repository import CompanyRepository
 from egxpm.persistence.db import init_db
@@ -50,6 +51,7 @@ from egxpm.persistence.models import (
 from egxpm.persistence.operational_repository import OperationalRepository
 from egxpm.persistence.portfolio_repository import PortfolioRepository
 from egxpm.persistence.recommendation_repository import RecommendationRepository
+from egxpm.persistence.sector_market_repository import SectorMarketRepository
 from egxpm.scoring_pipeline import (
     HISTORY_LOOKBACK_SCORES,
     active_recommendation,
@@ -99,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     operational_repo = OperationalRepository(args.db_path)
     portfolio_repo = PortfolioRepository(args.db_path)
     rec_repo = RecommendationRepository(args.db_path)
+    sector_repo = SectorMarketRepository(args.db_path)
     health_service = SourceHealthService(args.db_path)
 
     operational_repo.save_configuration_snapshot(weights)
@@ -210,6 +213,12 @@ def main(argv: list[str] | None = None) -> int:
             ),
             None, None,  # sector/market summaries aren't recomputed for the daily swing run
         )
+
+        if raw_config.get("export_ai_context", False):
+            raw_context = build_raw_context(company_id, company_repo, sector_repo, weights)
+            export_context(
+                company_id, raw_context, context, PromptRegistry.version(), model_config.model, job_id=job.job_id,
+            )
 
         try:
             structured = generate_recommendation(context, schema, model_config, system_prompt)

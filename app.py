@@ -62,12 +62,28 @@ def _lang() -> str:
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_allocation():
+    """Returns (AllocationReport, missing_price_company_ids).
+
+    A held company with literally no price on record (e.g. ADA — no
+    collector currently covers it) must not crash the whole Home page.
+    It's excluded from the arithmetic here and its exclusion is surfaced
+    to the caller so the page can show a visible warning — the Dashboard
+    boundary is the right place for this tolerance, not
+    AllocationCalculator.calculate() itself, which must keep raising for
+    every other caller (e.g. the real Job pipeline) where a silent gap
+    would be a genuine bug rather than an expected, permanent one.
+    """
     dashboard_repo = DashboardReadRepository(DB_PATH)
     company_repo = CompanyRepository(DB_PATH)
     holdings = company_repo.list_holdings()
     prices = company_repo.get_latest_prices([h.company_id for h in holdings])
+    missing = sorted({h.company_id for h in holdings if h.company_id not in prices})
+    priced_holdings = [h for h in holdings if h.company_id in prices]
     fallback_config = load_configuration_snapshot()
-    return dashboard_repo.get_current_allocation(prices=prices, cash=0.0, fallback_config=fallback_config)
+    allocation = dashboard_repo.get_current_allocation(
+        prices=prices, cash=0.0, fallback_config=fallback_config, holdings_override=priced_holdings,
+    )
+    return allocation, missing
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS)
@@ -179,11 +195,17 @@ def render_home():
     lang = _lang()
     st.title(t("Home — Portfolio Summary", lang))
 
-    allocation = load_allocation()
+    allocation, missing_price_company_ids = load_allocation()
     col1, col2, col3 = st.columns(3)
     col1.metric(t("Total Portfolio Value (EGP)", lang), f"{allocation.total_value:,.2f}")
     col2.metric(t("Cash (EGP)", lang), f"{allocation.cash:,.2f}")
     col3.metric(t("Holdings Count", lang), len(allocation.by_stock_pct))
+
+    if missing_price_company_ids:
+        st.warning(
+            f"{t('Price data unavailable — excluded from allocation below', lang)}: "
+            f"{', '.join(missing_price_company_ids)}"
+        )
 
     if allocation.total_value == 0:
         st.info(t(

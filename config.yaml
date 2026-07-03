@@ -1,13 +1,14 @@
 # Database
 db_path: "data/egx.db"
 
-# Portfolio Target Allocation
+# Portfolio Target Allocation (confirmed 2026-07-03: 40/30/20/10 — no
+# separate gold target; gold (ADA) is tracked as a holding but excluded
+# from the rebalancing target on the user's explicit instruction)
 allocation_targets:
-  bmm_index: 0.25        # BMM equity index fund
-  long_term_stocks: 0.40  # individual long-term picks
+  bmm_index: 0.30         # Equity Mutual Fund (BMM / Beltone Meya Meya, tracks EGX100) — NOT money-market/fixed-income
+  long_term_stocks: 0.40  # individual long-term stock picks (CIB, TMG, Elsewedy, EFG, Abu Qir, ...)
   swing_trading: 0.20     # swing capital
-  cloud_cash: 0.10        # liquidity / cash management
-  gold: 0.05              # diversification only
+  cloud_cash: 0.10        # Thndr Cloud — flexible cash reserve
 
 # Per-stock and sector constraints
 max_per_stock_pct: 0.15
@@ -62,6 +63,14 @@ max_tokens: 1000
 # "ar"). The Copilot ignores this — it replies in whichever language the
 # user writes to it in, regardless of this setting.
 language: "en"
+
+# AI Input Context Export (debugging/reproducibility) — when true, every
+# Long-Term/Swing Reasoning Layer call also writes exports/{date}/{company}/
+# context.json + context.md with both the raw (unsummarized) and curated
+# (exact LLM input) context, so the same input can be replayed against a
+# different model or compared against a different prompt version. Off by
+# default since it writes files on every run.
+export_ai_context: false
 
 # Copilot limits
 copilot_max_tool_rounds: 5

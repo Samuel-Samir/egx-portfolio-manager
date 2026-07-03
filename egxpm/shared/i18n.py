@@ -48,6 +48,7 @@ _AR: dict[str, str] = {
         "لم يتم إدخال بيانات مراكز حقيقية بعد — هذا يعرض محفظة فارغة، وليس خطأ. "
         "أدخل مراكزك الفعلية في البورصة المصرية لعرض التوزيع الحقيقي هنا.",
     "Allocation by Category": "التوزيع حسب الفئة",
+    "Price data unavailable — excluded from allocation below": "بيانات السعر غير متوفرة — مستبعدة من التوزيع أدناه",
     "Stock constraint violations": "مخالفات حدود الأسهم",
     "Last PortfolioSnapshot": "آخر لقطة للمحفظة",
     "origin": "المصدر",

@@ -28,8 +28,9 @@ class DashboardReadRepository:
         prices: dict[str, float],
         cash: float,
         fallback_config: Optional[ConfigurationSnapshot] = None,
+        holdings_override: Optional[list] = None,
     ) -> AllocationReport:
-        holdings = self.company_repo.list_holdings()
+        holdings = holdings_override if holdings_override is not None else self.company_repo.list_holdings()
         config = self.operational_repo.get_latest_configuration_snapshot() or fallback_config
         if config is None:
             raise ValueError("no ConfigurationSnapshot available to compute allocation")

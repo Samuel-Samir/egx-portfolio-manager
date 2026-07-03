@@ -40,6 +40,7 @@ from egxpm.persistence.models import (
 from egxpm.persistence.operational_repository import OperationalRepository
 from egxpm.persistence.portfolio_repository import PortfolioRepository
 from egxpm.persistence.recommendation_repository import RecommendationRepository
+from egxpm.persistence.sector_market_repository import SectorMarketRepository
 from egxpm.engine.scoring_engine import aggregate_market_summary, aggregate_sector_summary, build_score
 from egxpm.scoring_pipeline import (
     HISTORY_LOOKBACK_SCORES,
@@ -51,6 +52,7 @@ from egxpm.scoring_pipeline import (
     historical_accuracy_summary,
     now_iso,
 )
+from egxpm.llm.context_export import build_raw_context, export_context
 from egxpm.shared.config import build_configuration_snapshot, load_raw_config
 from egxpm.shared.exceptions import BusinessDataError
 
@@ -79,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     operational_repo = OperationalRepository(args.db_path)
     portfolio_repo = PortfolioRepository(args.db_path)
     rec_repo = RecommendationRepository(args.db_path)
+    sector_repo = SectorMarketRepository(args.db_path)
     health_service = SourceHealthService(args.db_path)
 
     operational_repo.save_configuration_snapshot(weights)
@@ -196,6 +199,12 @@ def main(argv: list[str] | None = None) -> int:
             ),
             sector_summaries.get(succeeded[company_id]["company"].sector), market_summary,
         )
+
+        if raw_config.get("export_ai_context", False):
+            raw_context = build_raw_context(company_id, company_repo, sector_repo, weights)
+            export_context(
+                company_id, raw_context, context, PromptRegistry.version(), model_config.model, job_id=job.job_id,
+            )
 
         try:
             structured = generate_recommendation(context, schema, model_config, system_prompt)
