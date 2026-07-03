@@ -58,6 +58,11 @@ longterm_model: "claude-sonnet-4-6"
 copilot_model: "claude-sonnet-4-6"
 max_tokens: 1000
 
+# Recommendation reasoning language for the Long-Term/Swing Jobs ("en" or
+# "ar"). The Copilot ignores this — it replies in whichever language the
+# user writes to it in, regardless of this setting.
+language: "en"
+
 # Copilot limits
 copilot_max_tool_rounds: 5
 copilot_max_tool_calls: 15

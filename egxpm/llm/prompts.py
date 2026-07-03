@@ -2,6 +2,13 @@
 type. Cache key per the architecture doc: (model, PromptRegistry.version(),
 config_snapshot_id) — version() changes whenever a prompt's wording changes,
 invalidating cached reasoning tied to the old wording.
+
+Language: the Long-Term/Swing Jobs run headless off a cron schedule, so
+there's no "user's language" for a given call — output language is a
+config.yaml setting (`language: "ar"` or `"en"`) threaded through as an
+explicit parameter here. The Copilot is a live two-way conversation instead
+— it replies in whichever language the user actually wrote in for that
+turn (an instruction in COPILOT_SYSTEM_PROMPT), not a config toggle.
 """
 
 from __future__ import annotations
@@ -9,6 +16,14 @@ from __future__ import annotations
 from egxpm.llm.client import StructuredRecommendation
 
 PROMPT_VERSION = "v1"
+
+_ARABIC_OUTPUT_INSTRUCTION = """\
+
+
+Write every text field of your structured output — reasoning, key_risks, \
+rejected_alternatives, and confidence_commentary — in Arabic. Keep EGX \
+ticker symbols, company_id values, and numbers exactly as given; do not \
+transliterate or translate them."""
 
 _IDENTITY_GUARD = """\
 
@@ -68,6 +83,11 @@ trades: confirming a plan only records the decision — the user must still \
 execute it themselves in the Thndr app. Never claim a trade has been \
 placed.
 
+Reply in the same language the user writes to you in — Arabic if they \
+write in Arabic, English if they write in English. Keep EGX ticker \
+symbols, company_id values, and numbers exactly as given regardless of \
+language; never transliterate or translate them.
+
 Be concise and concrete. When you don't have enough information from your \
 tools to answer confidently, say so rather than guessing."""
 
@@ -78,11 +98,15 @@ class PromptRegistry:
         return PROMPT_VERSION
 
     @staticmethod
-    def longterm_system_prompt() -> str:
+    def longterm_system_prompt(language: str = "en") -> str:
+        if language == "ar":
+            return LONGTERM_SYSTEM_PROMPT + _ARABIC_OUTPUT_INSTRUCTION
         return LONGTERM_SYSTEM_PROMPT
 
     @staticmethod
-    def swing_system_prompt() -> str:
+    def swing_system_prompt(language: str = "en") -> str:
+        if language == "ar":
+            return SWING_SYSTEM_PROMPT + _ARABIC_OUTPUT_INSTRUCTION
         return SWING_SYSTEM_PROMPT
 
     @staticmethod

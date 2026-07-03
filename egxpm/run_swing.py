@@ -186,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
         model=raw_config.get("swing_model", "claude-haiku-4-5"), max_tokens=raw_config.get("max_tokens", 1000),
     )
     schema = PromptRegistry.structured_recommendation_schema()
-    system_prompt = PromptRegistry.swing_system_prompt()
+    system_prompt = PromptRegistry.swing_system_prompt(language=raw_config.get("language", "en"))
     recommendations_created = 0
 
     for company_id in candidates:
