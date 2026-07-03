@@ -58,3 +58,16 @@ def test_all_15_pages_registered():
     at.run(timeout=30)
     assert set(at.sidebar.radio[0].options) == set(PAGES)
     assert len(PAGES) == 15
+
+
+@pytest.mark.parametrize("page", READ_ONLY_PAGES)
+def test_page_renders_without_exception_in_arabic(page):
+    # format_func translates the displayed label only — the underlying
+    # radio value (and PAGES dict key) stays the stable English string,
+    # so routing is unaffected by the language toggle.
+    _require_real_db()
+    at = AppTest.from_file("app.py")
+    at.run(timeout=30)
+    at.sidebar.selectbox[0].set_value("ar").run(timeout=30)
+    at.sidebar.radio[0].set_value(page).run(timeout=30)
+    assert list(at.exception) == []

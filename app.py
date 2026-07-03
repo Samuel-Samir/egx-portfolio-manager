@@ -12,6 +12,13 @@ read-only Repository call.
 
 "Reports" (the 15th page in the architecture doc's inventory) is out of
 scope: no Job in this codebase writes dated Markdown files to reports/ yet.
+
+Arabic support: a sidebar language toggle translates fixed UI chrome
+(titles, labels, captions, column headers) via egxpm/shared/i18n.t() —
+data itself (company names, tickers, numbers, JSON breakdown keys) is
+never translated. This is a separate concern from the language the
+Reasoning Layer writes recommendations in (see llm/prompts.py) or the
+language the Copilot replies in (which follows the user's own language).
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ from egxpm.persistence.portfolio_repository import PortfolioRepository
 from egxpm.persistence.recommendation_repository import RecommendationRepository
 from egxpm.shared.config import load_configuration_snapshot
 from egxpm.shared.exceptions import BusinessDataError
+from egxpm.shared.i18n import is_rtl, t
 from egxpm.shared.recommendation_analytics import summarize_performance
 
 DB_PATH = "data/egx.db"
@@ -42,6 +50,10 @@ CACHE_TTL_SECONDS = 300
 
 init_db(DB_PATH)  # idempotent — safe to call on every page load
 st.set_page_config(page_title="EGX Portfolio Manager", layout="wide")
+
+
+def _lang() -> str:
+    return st.session_state.get("language", "en")
 
 
 # ------------------------------------------------------------
@@ -159,87 +171,91 @@ def load_table_page(table_name: str, limit: int, offset: int):
 # ------------------------------------------------------------
 
 def render_home():
-    st.title("Home — Portfolio Summary")
+    lang = _lang()
+    st.title(t("Home — Portfolio Summary", lang))
 
     allocation = load_allocation()
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Portfolio Value (EGP)", f"{allocation.total_value:,.2f}")
-    col2.metric("Cash (EGP)", f"{allocation.cash:,.2f}")
-    col3.metric("Holdings Count", len(allocation.by_stock_pct))
+    col1.metric(t("Total Portfolio Value (EGP)", lang), f"{allocation.total_value:,.2f}")
+    col2.metric(t("Cash (EGP)", lang), f"{allocation.cash:,.2f}")
+    col3.metric(t("Holdings Count", lang), len(allocation.by_stock_pct))
 
     if allocation.total_value == 0:
-        st.info(
+        st.info(t(
             "No real Holding data has been entered yet — this shows an empty portfolio, "
-            "not an error. Enter your actual EGX positions to see real allocation here."
-        )
+            "not an error. Enter your actual EGX positions to see real allocation here.",
+            lang,
+        ))
 
     if allocation.by_category_pct:
-        st.subheader("Allocation by Category")
+        st.subheader(t("Allocation by Category", lang))
         st.bar_chart(allocation.by_category_pct)
 
     if allocation.stock_constraint_violations:
-        st.warning(f"Stock constraint violations: {', '.join(allocation.stock_constraint_violations)}")
+        st.warning(f"{t('Stock constraint violations', lang)}: {', '.join(allocation.stock_constraint_violations)}")
 
     snapshot = load_latest_portfolio_snapshot()
     if snapshot:
-        st.caption(f"Last PortfolioSnapshot: {snapshot.captured_at} (origin={snapshot.origin.value})")
+        st.caption(f"{t('Last PortfolioSnapshot', lang)}: {snapshot.captured_at} ({t('origin', lang)}={snapshot.origin.value})")
     else:
-        st.caption("No PortfolioSnapshot captured yet — run the Long-Term Job.")
+        st.caption(t("No PortfolioSnapshot captured yet — run the Long-Term Job.", lang))
 
-    st.subheader("Recent Recommendations")
+    st.subheader(t("Recent Recommendations", lang))
     recommendations = load_recent_recommendations(limit=5)
     if not recommendations:
-        st.write("No Recommendations yet.")
+        st.write(t("No Recommendations yet.", lang))
     else:
         for rec in recommendations:
             with st.expander(f"{rec.company_id} — {rec.action.value} ({rec.created_at})"):
                 st.write(rec.frozen_package.get("reasoning", ""))
                 risks = rec.frozen_package.get("key_risks", [])
                 if risks:
-                    st.write("**Key risks:**")
+                    st.write(f"**{t('Key risks:', lang)}**")
                     for risk in risks:
                         st.write(f"- {risk}")
                 alternatives = rec.frozen_package.get("rejected_alternatives", [])
                 if alternatives:
-                    st.write("**Rejected alternatives:**")
+                    st.write(f"**{t('Rejected alternatives:', lang)}**")
                     for alt in alternatives:
                         st.write(f"- {alt}")
 
 
 def render_portfolio_holdings():
-    st.title("Portfolio — Holdings Detail")
+    lang = _lang()
+    st.title(t("Portfolio — Holdings Detail", lang))
     rows = load_holdings_detail()
     if not rows:
-        st.write("No Holdings on record. This is expected until real positions are entered.")
+        st.write(t("No Holdings on record. This is expected until real positions are entered.", lang))
         return
 
     table = []
     for row in rows:
         holding, company, score = row["holding"], row["company"], row["score"]
         table.append({
-            "Company": holding.company_id, "Name": company.name if company else None,
-            "Category": holding.category.value, "Quantity": holding.quantity,
-            "Avg Cost": holding.average_cost, "Latest Price": row["latest_price"],
-            "Unrealized P&L": row["unrealized_pnl"],
-            "Composite Score": score.composite_score if score else None,
-            "Confidence": row["confidence"].confidence_value if row["confidence"] else None,
+            t("Company", lang): holding.company_id, t("Name", lang): company.name if company else None,
+            t("Category", lang): holding.category.value, t("Quantity", lang): holding.quantity,
+            t("Avg Cost", lang): holding.average_cost, t("Latest Price", lang): row["latest_price"],
+            t("Unrealized P&L", lang): row["unrealized_pnl"],
+            t("Composite Score", lang): score.composite_score if score else None,
+            t("Confidence", lang): row["confidence"].confidence_value if row["confidence"] else None,
         })
     st.dataframe(table, width="stretch")
 
 
 def render_watchlist():
-    st.title("Watchlist")
+    lang = _lang()
+    st.title(t("Watchlist", lang))
     rows = load_watchlist_detail()
     if not rows:
-        st.write("No WATCHLIST or CANDIDATE companies found.")
+        st.write(t("No WATCHLIST or CANDIDATE companies found.", lang))
         return
 
     table = [
         {
-            "Company": row["company"].company_id, "Name": row["company"].name,
-            "State": row["state"].value, "Sector": row["company"].sector,
-            "Composite Score": row["score"].composite_score if row["score"] else None,
-            "Trend": row["technical_snapshot"].trend.value if row["technical_snapshot"] and row["technical_snapshot"].trend else None,
+            t("Company", lang): row["company"].company_id, t("Name", lang): row["company"].name,
+            t("State", lang): row["state"].value, t("Sector", lang): row["company"].sector,
+            t("Composite Score", lang): row["score"].composite_score if row["score"] else None,
+            t("Trend", lang): row["technical_snapshot"].trend.value if row["technical_snapshot"] and row["technical_snapshot"].trend else None,
         }
         for row in rows
     ]
@@ -247,39 +263,42 @@ def render_watchlist():
 
 
 def render_swing_trading():
-    st.title("Swing Trading")
-    st.caption(
+    lang = _lang()
+    st.title(t("Swing Trading", lang))
+    st.caption(t(
         "Today's swing Recommendations. Identified by having a stop_loss set — "
         "only swing Recommendations carry ATR-based stop/target/size; "
-        "long-term Recommendations don't (Position Sizing is swing-only)."
-    )
+        "long-term Recommendations don't (Position Sizing is swing-only).",
+        lang,
+    ))
     today = date.today().isoformat()
     swing_today = [
         rec for rec in load_all_recommendations()
         if rec.stop_loss is not None and rec.created_at[:10] == today
     ]
     if not swing_today:
-        st.write("No swing Recommendations today.")
+        st.write(t("No swing Recommendations today.", lang))
         return
 
     for rec in swing_today:
         events = load_recommendation_events(rec.recommendation_id)
         superseded = len(events["supersessions"]) > 0
-        with st.expander(f"{rec.company_id} — {rec.action.value} {'(superseded)' if superseded else ''}"):
+        with st.expander(f"{rec.company_id} — {rec.action.value} {t('(superseded)', lang) if superseded else ''}"):
             st.write(f"Entry: {rec.entry_price} | Stop: {rec.stop_loss} | Target: {rec.take_profit} | Size: {rec.position_size}")
             st.write(rec.frozen_package.get("reasoning", ""))
 
 
 def render_recommendations_history():
-    st.title("Recommendations History")
+    lang = _lang()
+    st.title(t("Recommendations History", lang))
     recommendations = load_all_recommendations()
     if not recommendations:
-        st.write("No Recommendations yet.")
+        st.write(t("No Recommendations yet.", lang))
         return
 
     page_size = 20
     total_pages = max(1, (len(recommendations) + page_size - 1) // page_size)
-    page = st.number_input("Page", min_value=1, max_value=total_pages, value=1)
+    page = st.number_input(t("Page", lang), min_value=1, max_value=total_pages, value=1)
     start = (page - 1) * page_size
     page_items = recommendations[start:start + page_size]
 
@@ -287,16 +306,17 @@ def render_recommendations_history():
     for rec in page_items:
         events = load_recommendation_events(rec.recommendation_id)
         table.append({
-            "Company": rec.company_id, "Action": rec.action.value, "Created": rec.created_at,
-            "Superseded": len(events["supersessions"]) > 0,
-            "Executions": len(events["executions"]), "Outcomes": len(events["outcomes"]),
+            t("Company", lang): rec.company_id, t("Action", lang): rec.action.value, t("Created", lang): rec.created_at,
+            t("Superseded", lang): len(events["supersessions"]) > 0,
+            t("Executions", lang): len(events["executions"]), t("Outcomes", lang): len(events["outcomes"]),
         })
     st.dataframe(table, width="stretch")
-    st.caption(f"Page {page} of {total_pages} ({len(recommendations)} total)")
+    st.caption(f"{t('Page', lang)} {page} {t('of', lang)} {total_pages} ({len(recommendations)} {t('total', lang)})")
 
 
 def render_recommendation_performance():
-    st.title("Recommendation Performance")
+    lang = _lang()
+    st.title(t("Recommendation Performance", lang))
     recommendations = load_all_recommendations()
     all_outcomes = []
     all_feedback = []
@@ -306,94 +326,100 @@ def render_recommendation_performance():
         all_feedback.extend(events["feedback"])
 
     if not all_outcomes:
-        st.write("No Outcomes recorded yet — Performance analytics will populate once trades are executed and outcomes tracked.")
+        st.write(t(
+            "No Outcomes recorded yet — Performance analytics will populate once trades "
+            "are executed and outcomes tracked.",
+            lang,
+        ))
         return
 
     summary = summarize_performance(all_outcomes)
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Final Outcomes", summary.final_outcome_count)
-    col2.metric("Target Hit Rate", f"{summary.target_hit_rate * 100:.1f}%" if summary.target_hit_rate is not None else "n/a")
-    col3.metric("Stop Hit Rate", f"{summary.stop_hit_rate * 100:.1f}%" if summary.stop_hit_rate is not None else "n/a")
+    col1.metric(t("Final Outcomes", lang), summary.final_outcome_count)
+    col2.metric(t("Target Hit Rate", lang), f"{summary.target_hit_rate * 100:.1f}%" if summary.target_hit_rate is not None else "n/a")
+    col3.metric(t("Stop Hit Rate", lang), f"{summary.stop_hit_rate * 100:.1f}%" if summary.stop_hit_rate is not None else "n/a")
     if summary.average_return is not None:
-        st.metric("Average Return", f"{summary.average_return * 100:.2f}%")
+        st.metric(t("Average Return", lang), f"{summary.average_return * 100:.2f}%")
 
-    st.subheader("User Feedback")
+    st.subheader(t("User Feedback", lang))
     if not all_feedback:
-        st.write("No UserFeedback recorded yet.")
+        st.write(t("No UserFeedback recorded yet.", lang))
     else:
         st.dataframe(
-            [{"Agreement": f.agreement.value if f.agreement else None, "Text": f.feedback_text} for f in all_feedback],
+            [{t("Agreement", lang): f.agreement.value if f.agreement else None, t("Text", lang): f.feedback_text} for f in all_feedback],
             width="stretch",
         )
 
 
 def render_company_analysis():
-    st.title("Company Analysis")
+    lang = _lang()
+    st.title(t("Company Analysis", lang))
     companies = load_companies_overview()
     if not companies:
-        st.write("No companies on record.")
+        st.write(t("No companies on record.", lang))
         return
-    selected = st.selectbox("Company", [c.company_id for c in companies])
+    selected = st.selectbox(t("Company", lang), [c.company_id for c in companies])
     analysis = load_company_analysis(selected)
 
-    st.subheader("Score History")
+    st.subheader(t("Score History", lang))
     if analysis["score_history"]:
         st.dataframe(
-            [{"Computed At": s.computed_at, "Composite": s.composite_score, "Financial": s.financial_score,
-              "Technical": s.technical_score, "News": s.news_score} for s in analysis["score_history"]],
+            [{t("Computed At", lang): s.computed_at, t("Composite Score", lang): s.composite_score, t("Financial", lang): s.financial_score,
+              t("Technical", lang): s.technical_score, t("News", lang): s.news_score} for s in analysis["score_history"]],
             width="stretch",
         )
     else:
-        st.write("No Score history yet.")
+        st.write(t("No Score history yet.", lang))
 
-    st.subheader("Financial Statements")
+    st.subheader(t("Financial Statements", lang))
     if analysis["financial_statements"]:
         st.dataframe(
-            [{"Period": s.period_end, "Revenue": s.revenue, "Net Income": s.net_income,
-              "Total Assets": s.total_assets} for s in analysis["financial_statements"]],
+            [{t("Period", lang): s.period_end, t("Revenue", lang): s.revenue, t("Net Income", lang): s.net_income,
+              t("Total Assets", lang): s.total_assets} for s in analysis["financial_statements"]],
             width="stretch",
         )
     else:
-        st.write("No FinancialStatements yet.")
+        st.write(t("No FinancialStatements yet.", lang))
 
-    st.subheader("Technical Snapshots")
+    st.subheader(t("Technical Snapshots", lang))
     if analysis["technical_snapshots"]:
         st.dataframe(
-            [{"Computed At": t.computed_at, "Trend": t.trend.value if t.trend else None,
-              "RSI": t.rsi, "Breakout": t.breakout} for t in analysis["technical_snapshots"]],
+            [{t("Computed At", lang): t2.computed_at, t("Trend", lang): t2.trend.value if t2.trend else None,
+              "RSI": t2.rsi, t("Breakout", lang): t2.breakout} for t2 in analysis["technical_snapshots"]],
             width="stretch",
         )
     else:
-        st.write("No TechnicalSnapshots yet.")
+        st.write(t("No TechnicalSnapshots yet.", lang))
 
-    st.subheader("Recent News")
+    st.subheader(t("Recent News", lang))
     if analysis["news"]:
         for item in analysis["news"][:10]:
             st.write(f"- **{item.published_at}** ({item.publisher_name}): {item.headline} "
                       f"[sentiment={item.sentiment_score}, relevance={item.relevance_score}]")
     else:
-        st.write("No news yet.")
+        st.write(t("No news yet.", lang))
 
 
 def render_financial_statements():
-    st.title("Financial Statements")
+    lang = _lang()
+    st.title(t("Financial Statements", lang))
     companies = load_companies_overview()
     if not companies:
-        st.write("No companies on record.")
+        st.write(t("No companies on record.", lang))
         return
-    selected = st.selectbox("Company", [c.company_id for c in companies], key="fs_company")
+    selected = st.selectbox(t("Company", lang), [c.company_id for c in companies], key="fs_company")
     statements = load_financial_statements(selected)
     if not statements:
-        st.write("No FinancialStatements for this company yet.")
+        st.write(t("No FinancialStatements for this company yet.", lang))
         return
     table = [
         {
-            "Period": s.period_end, "Type": s.period_type.value, "Revenue": s.revenue,
-            "Net Interest Income": s.net_interest_income, "Net Income": s.net_income,
-            "EPS (Diluted)": s.eps_diluted, "Total Assets": s.total_assets,
-            "Total Liabilities": s.total_liabilities, "Total Equity": s.total_equity,
-            "Operating CF": s.operating_cash_flow, "Free Cash Flow": s.free_cash_flow,
+            t("Period", lang): s.period_end, t("Type", lang): s.period_type.value, t("Revenue", lang): s.revenue,
+            t("Net Interest Income", lang): s.net_interest_income, t("Net Income", lang): s.net_income,
+            t("EPS (Diluted)", lang): s.eps_diluted, t("Total Assets", lang): s.total_assets,
+            t("Total Liabilities", lang): s.total_liabilities, t("Total Equity", lang): s.total_equity,
+            t("Operating CF", lang): s.operating_cash_flow, t("Free Cash Flow", lang): s.free_cash_flow,
         }
         for s in statements
     ]
@@ -401,24 +427,25 @@ def render_financial_statements():
 
     latest_score = CompanyRepository(DB_PATH).get_latest_score(selected)
     if latest_score and latest_score.financial_breakdown:
-        st.subheader("Latest Financial Score Breakdown")
+        st.subheader(t("Latest Financial Score Breakdown", lang))
         st.json(latest_score.financial_breakdown)
 
 
 def render_news_feed():
-    st.title("News Feed")
+    lang = _lang()
+    st.title(t("News Feed", lang))
     companies = load_companies_overview()
-    options = ["All companies"] + [c.company_id for c in companies]
-    selected = st.selectbox("Filter by company", options)
-    company_id = None if selected == "All companies" else selected
+    options = [t("All companies", lang)] + [c.company_id for c in companies]
+    selected = st.selectbox(t("Filter by company", lang), options)
+    company_id = None if selected == t("All companies", lang) else selected
     news = load_news_items(company_id)
     if not news:
-        st.write("No news items found.")
+        st.write(t("No news items found.", lang))
         return
     table = [
         {
-            "Published": n.published_at, "Company": n.company_id, "Publisher": n.publisher_name,
-            "Headline": n.headline, "Sentiment": n.sentiment_score, "Relevance": n.relevance_score,
+            t("Published", lang): n.published_at, t("Company", lang): n.company_id, t("Publisher", lang): n.publisher_name,
+            t("Headline", lang): n.headline, t("Sentiment", lang): n.sentiment_score, t("Relevance", lang): n.relevance_score,
         }
         for n in news
     ]
@@ -426,60 +453,63 @@ def render_news_feed():
 
 
 def render_historical_timeline():
-    st.title("Historical Timeline")
+    lang = _lang()
+    st.title(t("Historical Timeline", lang))
     snapshots = load_portfolio_snapshot_history()
     if not snapshots:
-        st.write("No PortfolioSnapshots yet — run a Long-Term or Swing Job.")
+        st.write(t("No PortfolioSnapshots yet — run a Long-Term or Swing Job.", lang))
         return
     table = [
-        {"Captured At": s.captured_at, "Origin": s.origin.value, "Cash": s.cash,
-         "Total Value": s.computed_allocation.get("total_value")}
+        {t("Captured At", lang): s.captured_at, t("Origin", lang): s.origin.value, t("Cash", lang): s.cash,
+         t("Total Value", lang): s.computed_allocation.get("total_value")}
         for s in snapshots
     ]
     st.dataframe(table, width="stretch")
 
 
 def render_longterm_rankings():
-    st.title("Long-Term Rankings")
+    lang = _lang()
+    st.title(t("Long-Term Rankings", lang))
     rankings = load_longterm_rankings()
     if not rankings:
-        st.write("No scored WATCHLIST companies yet — run `python -m egxpm.run_longterm`.")
+        st.write(t("No scored WATCHLIST companies yet — run `python -m egxpm.run_longterm`.", lang))
         return
 
     table = [
         {
-            "Company": row["company"].company_id, "Name": row["company"].name,
-            "Sector": row["company"].sector, "Composite": row["score"].composite_score,
-            "Financial": row["score"].financial_score, "Technical": row["score"].technical_score,
-            "News": row["score"].news_score,
+            t("Company", lang): row["company"].company_id, t("Name", lang): row["company"].name,
+            t("Sector", lang): row["company"].sector, "Composite": row["score"].composite_score,
+            t("Financial", lang): row["score"].financial_score, t("Technical", lang): row["score"].technical_score,
+            t("News", lang): row["score"].news_score,
         }
         for row in rankings
     ]
     st.dataframe(table, width="stretch")
 
-    st.subheader("Score Breakdown")
-    selected = st.selectbox("Company", [row["company"].company_id for row in rankings])
+    st.subheader(t("Score Breakdown", lang))
+    selected = st.selectbox(t("Company", lang), [row["company"].company_id for row in rankings])
     selected_row = next(row for row in rankings if row["company"].company_id == selected)
     col1, col2 = st.columns(2)
-    col1.write("**Financial breakdown**")
+    col1.write(f"**{t('Financial breakdown', lang)}**")
     col1.json(selected_row["score"].financial_breakdown)
-    col2.write("**Technical breakdown**")
+    col2.write(f"**{t('Technical breakdown', lang)}**")
     col2.json(selected_row["score"].technical_breakdown)
-    st.write("**News breakdown**")
+    st.write(f"**{t('News breakdown', lang)}**")
     st.json(selected_row["score"].news_breakdown)
 
 
 def render_job_status():
-    st.title("Job Status")
+    lang = _lang()
+    st.title(t("Job Status", lang))
     jobs = load_recent_jobs()
     if not jobs:
-        st.write("No Jobs recorded yet.")
+        st.write(t("No Jobs recorded yet.", lang))
         return
     table = [
         {
-            "Job ID": job.job_id[:8], "Type": job.job_type.value, "Status": job.status.value,
-            "Started": job.started_at, "Completed": job.completed_at,
-            "Processed": job.companies_processed, "Failed": job.companies_failed,
+            t("Job ID", lang): job.job_id[:8], t("Type", lang): job.job_type.value, t("Status", lang): job.status.value,
+            t("Started", lang): job.started_at, t("Completed", lang): job.completed_at,
+            t("Processed", lang): job.companies_processed, t("Failed", lang): job.companies_failed,
         }
         for job in jobs
     ]
@@ -487,10 +517,11 @@ def render_job_status():
 
 
 def render_collector_status():
-    st.title("Collector Status")
+    lang = _lang()
+    st.title(t("Collector Status", lang))
     runs = load_recent_collection_runs()
     if not runs:
-        st.write("No CollectionRuns recorded yet.")
+        st.write(t("No CollectionRuns recorded yet.", lang))
         return
 
     by_source: dict[str, dict[str, int]] = {}
@@ -503,25 +534,25 @@ def render_collector_status():
         else:
             stats["other"] += 1
 
-    st.subheader("Source Health (rolling 30-day success rate, 1-hr cache)")
+    st.subheader(t("Source Health (rolling 30-day success rate, 1-hr cache)", lang))
     health = load_source_health(tuple(sorted(by_source.keys())))
     st.dataframe(
-        [{"Source": source, "Rolling Success Rate": f"{rate:.0%}" if rate is not None else "n/a"}
+        [{t("Source", lang): source, t("Rolling Success Rate", lang): f"{rate:.0%}" if rate is not None else "n/a"}
          for source, rate in health.items()],
         width="stretch",
     )
 
-    st.subheader("Success rate by source (most recent runs shown)")
+    st.subheader(t("Success rate by source (most recent runs shown)", lang))
     st.dataframe(
-        [{"Source": source, **stats} for source, stats in by_source.items()],
+        [{t("Source", lang): source, **stats} for source, stats in by_source.items()],
         width="stretch",
     )
 
-    st.subheader("Recent runs")
+    st.subheader(t("Recent runs", lang))
     table = [
         {
-            "Source": run.data_source_id, "Company": run.company_id, "Status": run.status.value,
-            "Started": run.started_at, "Records": run.records_collected, "Error": run.error_message,
+            t("Source", lang): run.data_source_id, t("Company", lang): run.company_id, t("Status", lang): run.status.value,
+            t("Started", lang): run.started_at, t("Records", lang): run.records_collected, t("Error", lang): run.error_message,
         }
         for run in runs
     ]
@@ -529,18 +560,19 @@ def render_collector_status():
 
 
 def render_raw_database_explorer():
-    st.title("Raw Database Explorer")
-    st.caption("Read-only. Any table, paginated.")
+    lang = _lang()
+    st.title(t("Raw Database Explorer", lang))
+    st.caption(t("Read-only. Any table, paginated.", lang))
     tables = load_table_names()
-    selected = st.selectbox("Table", tables)
-    page_size = st.number_input("Rows per page", min_value=10, max_value=500, value=50, step=10)
-    page = st.number_input("Page", min_value=1, value=1)
+    selected = st.selectbox(t("Table", lang), tables)
+    page_size = st.number_input(t("Rows per page", lang), min_value=10, max_value=500, value=50, step=10)
+    page = st.number_input(t("Page", lang), min_value=1, value=1)
     rows, total = load_table_page(selected, limit=page_size, offset=(page - 1) * page_size)
-    st.caption(f"{total} total rows")
+    st.caption(f"{total} {t('total rows', lang)}")
     if rows:
         st.dataframe(rows, width="stretch")
     else:
-        st.write("No rows on this page.")
+        st.write(t("No rows on this page.", lang))
 
 
 def _get_copilot_session() -> CopilotSession:
@@ -563,27 +595,29 @@ def _ensure_conversation(session: CopilotSession) -> str:
 
 
 def render_copilot():
-    st.title("Copilot")
-    st.caption(
+    lang = _lang()
+    st.title(t("Copilot", lang))
+    st.caption(t(
         "Conversational analysis assistant — read-only tools run immediately; "
         "propose_rebalance and propose_swing_analysis create a pending plan below "
         "that you must explicitly confirm. This system never places real trades: "
         "confirming a plan only records the decision — you still execute it "
-        "yourself in Thndr."
-    )
+        "yourself in Thndr.",
+        lang,
+    ))
     session = _get_copilot_session()
 
     for role, text in st.session_state.copilot_display_history:
         with st.chat_message(role):
             st.markdown(text)
 
-    user_text = st.chat_input("Ask about a company, your portfolio, or propose a plan...")
+    user_text = st.chat_input(t("Ask about a company, your portfolio, or propose a plan...", lang))
     if user_text:
         st.session_state.copilot_display_history.append(("user", user_text))
         with st.chat_message("user"):
             st.markdown(user_text)
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
+            with st.spinner(t("Thinking...", lang)):
                 try:
                     reply = session.send_message(user_text)
                 except BusinessDataError as exc:
@@ -593,12 +627,12 @@ def render_copilot():
 
     pending = session.state.pending_plans
     if pending:
-        st.subheader("Pending Plans")
-        st.caption("Clicking Confirm is the explicit approval step — nothing is applied without it.")
+        st.subheader(t("Pending Plans", lang))
+        st.caption(t("Clicking Confirm is the explicit approval step — nothing is applied without it.", lang))
         for plan_id, plan in list(pending.items()):
             with st.expander(f"{plan.get('plan_type', 'plan')} — {plan_id}"):
                 st.json(plan)
-                if st.button("Confirm", key=f"confirm-{plan_id}"):
+                if st.button(t("Confirm", lang), key=f"confirm-{plan_id}"):
                     result = session.registry.execute(
                         "confirm_and_apply", {"plan_id": plan_id}, session.state
                     )
@@ -609,9 +643,9 @@ def render_copilot():
                     st.rerun()
 
     if session.state.confirmed_plan_ids:
-        st.caption(f"Confirmed this session: {', '.join(session.state.confirmed_plan_ids)}")
+        st.caption(f"{t('Confirmed this session', lang)}: {', '.join(session.state.confirmed_plan_ids)}")
 
-    if st.session_state.copilot_display_history and st.button("Save session"):
+    if st.session_state.copilot_display_history and st.button(t("Save session", lang)):
         conversation_id = _ensure_conversation(session)
         result = session.registry.execute(
             "save_analysis_session",
@@ -619,7 +653,7 @@ def render_copilot():
             session.state,
         )
         if result.success:
-            st.success(f"Session saved (session_id={session.session_id}).")
+            st.success(f"{t('Session saved', lang)} (session_id={session.session_id}).")
         else:
             st.error(result.error)
 
@@ -642,5 +676,19 @@ PAGES = {
     "Copilot": render_copilot,
 }
 
-page_name = st.sidebar.radio("Page", list(PAGES.keys()))
+st.sidebar.selectbox(
+    "Language / اللغة", ["en", "ar"], format_func=lambda l: "English" if l == "en" else "العربية",
+    key="language",
+)
+_active_lang = _lang()
+if is_rtl(_active_lang):
+    st.markdown(
+        """<style>
+        .stApp, [data-testid="stSidebar"] { direction: rtl; text-align: right; }
+        [data-testid="stMetricValue"], [data-testid="stMetricLabel"] { text-align: right; }
+        </style>""",
+        unsafe_allow_html=True,
+    )
+
+page_name = st.sidebar.radio(t("Page", _active_lang), list(PAGES.keys()), format_func=lambda k: t(k, _active_lang))
 PAGES[page_name]()
